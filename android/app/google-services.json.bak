@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "674850950576",
+    "project_id": "nile-quest-20d61",
+    "storage_bucket": "nile-quest-20d61.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:674850950576:android:e09bad5d633f5b40595a75",
+        "android_client_info": {
+          "package_name": "com.nilequest.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "674850950576-8hj3ln8a2bcephlul6u13rj4bodi75bc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nilequest.app",
+            "certificate_hash": "e399ef006e13d95deb9153e68193cab74fc2441b"
+          }
+        },
+        {
+          "client_id": "674850950576-tqovtggbk5d6596pqb5g62bkke0b1hmh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDoM6dviR9Vctnm5U-6n5bCvDiZ3OK6tec"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "674850950576-tqovtggbk5d6596pqb5g62bkke0b1hmh.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

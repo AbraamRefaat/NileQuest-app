@@ -1,0 +1,14 @@
+{
+  "name": "tazkarti-backend-vercel",
+  "version": "1.0.0",
+  "description": "Tazkarti events scraper for Vercel",
+  "main": "api/events.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "mongodb": "^6.3.0",
+    "@sparticuz/chromium": "^119.0.2",
+    "puppeteer-core": "^21.6.1"
+  }
+}

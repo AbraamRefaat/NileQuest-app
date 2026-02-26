@@ -1,0 +1,72 @@
+name: nile_quest
+description: Discover the Magic of Egypt - A Flutter mobile app for planning Egyptian travel adventures
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  cupertino_icons: ^1.0.2
+  google_fonts: ^6.1.0
+  flutter_svg: ^2.0.9
+  http: ^1.2.0
+  shared_preferences: ^2.2.2
+  network_info_plus: ^5.0.0
+  udp: ^5.0.3
+  
+  # Firebase
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  google_sign_in: ^6.2.1
+  
+  # Mapbox
+  mapbox_maps_flutter: ^2.3.0
+  
+  # Google Places
+  google_places_flutter: ^2.0.9
+  dio: ^5.4.0
+  cached_network_image: ^3.3.1
+  
+  # Map Enhancements
+  flutter_map_marker_cluster: ^1.3.6
+  latlong2: ^0.9.1
+  geolocator: ^13.0.2
+  geocoding: ^3.0.0
+  permission_handler: ^11.3.1
+  flutter_polyline_points: ^2.1.0
+  url_launcher: ^6.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.3
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/images/cities/
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/nile_quest_logo.png"
+  remove_alpha_ios: true
+  min_sdk_android: 21
+  # Disabled adaptive icon to prevent stretching
+  # adaptive_icon_background: "#0F5132"
+  # adaptive_icon_foreground: "assets/images/nile_quest_logo.png"
+
+flutter_native_splash:
+  color: "#1F4E5F"
+  android: true
+  ios: true
+  android_12:
+    color: "#1F4E5F"
