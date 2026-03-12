@@ -5,6 +5,7 @@ import '../models/event.dart';
 import '../services/tazkarti_service.dart';
 import '../widgets/location_chip.dart';
 import 'all_events_screen.dart';
+import 'who_am_i_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback onGenerateTrip;
@@ -20,15 +21,30 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   final TazkartiService _tazkartiService = TazkartiService();
   List<Event> _upcomingEvents = [];
   bool _isLoadingEvents = true;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnim;
 
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat(reverse: true);
+    _pulseAnim = Tween<double>(begin: 1.0, end: 1.12).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
     _loadEvents();
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadEvents() async {
@@ -298,7 +314,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
-              const SizedBox(height: 40),
+
+              const SizedBox(height: 32),
 
               // Popular Destinations Section
               Padding(
@@ -451,12 +468,81 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
 
-              // Bottom padding so last events scroll above the bottom nav bar
               SizedBox(
                 height: MediaQuery.of(context).padding.bottom + 72,
               ),
             ],
           ),
+        ),
+      ),
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 90, right: 8),
+        child: AnimatedBuilder(
+          animation: _pulseAnim,
+          builder: (context, child) {
+            return Transform.scale(
+              scale: _pulseAnim.value,
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.3 * _pulseAnim.value),
+                      blurRadius: 15,
+                      spreadRadius: 2,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: FloatingActionButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      PageRouteBuilder(
+                        pageBuilder: (_, anim, __) => const WhoAmIScreen(),
+                        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+                          opacity: anim,
+                          child: SlideTransition(
+                            position: Tween<Offset>(
+                              begin: const Offset(0, 0.06),
+                              end: Offset.zero,
+                            ).animate(
+                                CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+                            child: child,
+                          ),
+                        ),
+                        transitionDuration: const Duration(milliseconds: 450),
+                      ),
+                    );
+                  },
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  highlightElevation: 0,
+                  shape: const CircleBorder(),
+                  child: Container(
+                    width: 60,
+                    height: 60,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          AppColors.primary,
+                          Color(0xFF2A6678),
+                        ],
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.camera_enhance_rounded,
+                      color: AppColors.secondary,
+                      size: 30,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -871,3 +957,5 @@ final List<Map<String, dynamic>> _popularDestinations = [
     'isPopular': false,
   },
 ];
+
+
