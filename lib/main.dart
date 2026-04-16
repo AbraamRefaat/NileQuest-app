@@ -15,7 +15,7 @@ import 'screens/preference_setup_screen.dart';
 import 'screens/trip_generation_screen.dart';
 import 'screens/loading_screen.dart';
 import 'screens/itinerary_screen.dart';
-import 'screens/map_screen.dart';
+import 'screens/enhanced_map_screen_v2_functional.dart';
 import 'screens/place_detail_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/trips_screen.dart';
@@ -352,7 +352,10 @@ class _AppNavigatorState extends State<AppNavigator> {
           },
         );
       case AppScreen.map:
-        return const MapScreen();
+        return EnhancedMapScreenV2Functional(
+          itinerary: _generatedItinerary,
+          selectedDay: _selectedDayIndex,
+        );
       case AppScreen.placeDetail:
         return PlaceDetailScreen(
           event: _selectedDayIndex != null && _generatedItinerary != null
