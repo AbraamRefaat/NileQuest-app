@@ -7,13 +7,13 @@ class ServerConfig {
 
   /// Get the current server URL (using Railway production URL)
   static Future<String> getServerUrl() async {
-    print('📍 Using Railway production server');
+    print('📍 Using production recommendation server');
     return _getDefaultUrl();
   }
   
   /// Get default URL based on platform
   static String _getDefaultUrl() {
-    return 'https://web-production-f68ec.up.railway.app';
+    return 'http://13.53.174.37:8000';
   }
   
   /// Force re-discovery of server (clears cache)

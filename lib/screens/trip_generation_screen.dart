@@ -7,11 +7,13 @@ import '../services/recommendation_api.dart';
 class TripGenerationScreen extends StatefulWidget {
   final UserPreferences preferences;
   final Function(Itinerary) onGenerate;
+  final VoidCallback onBack;
 
   const TripGenerationScreen({
     super.key,
     required this.preferences,
     required this.onGenerate,
+    required this.onBack,
   });
 
   @override
@@ -168,6 +170,30 @@ class _TripGenerationScreenState extends State<TripGenerationScreen>
                       // Top content (Logo, Title, Summary Card)
                       Column(
                         children: [
+                          // Header with Back Button
+                          Row(
+                            children: [
+                              GestureDetector(
+                                onTap: widget.onBack,
+                                child: Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: AppColors.secondary.withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.arrow_back_rounded,
+                                    color: AppColors.charcoal,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
                           FadeTransition(
                             opacity: _animation,
                             child: SlideTransition(

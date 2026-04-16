@@ -101,6 +101,7 @@ class _AppNavigatorState extends State<AppNavigator> {
   Itinerary? _generatedItinerary;
   int? _selectedDayIndex;
   bool _isHistoryView = false;
+  int _preferenceInitialStep = 1;
   final AuthService _authService = AuthService();
   final GuestModeService _guestModeService = GuestModeService();
   final OnboardingService _onboardingService = OnboardingService();
@@ -284,12 +285,15 @@ class _AppNavigatorState extends State<AppNavigator> {
             if (!isAuthenticated && isGuest) {
               _showAuthRequiredDialog();
             } else {
+              setState(() => _preferenceInitialStep = 1);
               _navigateToScreen(AppScreen.preferences);
             }
           },
         );
       case AppScreen.preferences:
         return PreferenceSetupScreen(
+          initialStep: _preferenceInitialStep,
+          initialPreferences: _userPreferences,
           onComplete: (prefs) {
             _savePreferences(prefs);
             _navigateToScreen(AppScreen.tripGeneration);
@@ -308,6 +312,10 @@ class _AppNavigatorState extends State<AppNavigator> {
             _isHistoryView = false;
             _saveItinerary(itinerary);
             _navigateToScreen(AppScreen.loading);
+          },
+          onBack: () {
+            setState(() => _preferenceInitialStep = 6);
+            _navigateToScreen(AppScreen.preferences);
           },
         );
       case AppScreen.loading:
