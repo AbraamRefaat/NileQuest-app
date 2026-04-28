@@ -5,11 +5,15 @@ import '../models/user_preferences.dart';
 class PreferenceSetupScreen extends StatefulWidget {
   final Function(UserPreferences) onComplete;
   final VoidCallback onBack;
+  final int initialStep;
+  final UserPreferences? initialPreferences;
 
   const PreferenceSetupScreen({
     super.key,
     required this.onComplete,
     required this.onBack,
+    this.initialStep = 1,
+    this.initialPreferences,
   });
 
   @override
@@ -17,15 +21,30 @@ class PreferenceSetupScreen extends StatefulWidget {
 }
 
 class _PreferenceSetupScreenState extends State<PreferenceSetupScreen> {
-  int _currentStep = 1;
+  late int _currentStep;
   final int _totalSteps = 6;
 
   String? _selectedCity;
   String? _selectedDuration;
   String? _selectedBudget;
-  final List<String> _selectedInterests = [];
+  List<String> _selectedInterests = [];
   String? _selectedPace;
   String? _specificInterest;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentStep = widget.initialStep;
+    
+    if (widget.initialPreferences != null) {
+      _selectedCity = widget.initialPreferences!.city;
+      _selectedDuration = widget.initialPreferences!.durationDays?.toString();
+      _selectedBudget = widget.initialPreferences!.budgetTier;
+      _selectedInterests = List.from(widget.initialPreferences!.interests);
+      _selectedPace = widget.initialPreferences!.pace;
+      _specificInterest = widget.initialPreferences!.specificInterest;
+    }
+  }
 
   void _nextStep() {
     if (_currentStep < _totalSteps) {

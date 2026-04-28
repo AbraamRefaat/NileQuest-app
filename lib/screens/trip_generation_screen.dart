@@ -7,11 +7,13 @@ import '../services/recommendation_api.dart';
 class TripGenerationScreen extends StatefulWidget {
   final UserPreferences preferences;
   final Function(Itinerary) onGenerate;
+  final VoidCallback onBack;
 
   const TripGenerationScreen({
     super.key,
     required this.preferences,
     required this.onGenerate,
+    required this.onBack,
   });
 
   @override
@@ -153,202 +155,230 @@ class _TripGenerationScreenState extends State<TripGenerationScreen>
     return Scaffold(
       backgroundColor: AppColors.cream,
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, viewportConstraints) {
-            return SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: viewportConstraints.maxHeight,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Top content (Logo, Title, Summary Card)
-                      Column(
-                        children: [
-                          FadeTransition(
-                            opacity: _animation,
-                            child: SlideTransition(
-                              position: Tween<Offset>(
-                                begin: const Offset(0, 0.2),
-                                end: Offset.zero,
-                              ).animate(_animation),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  // Icon
-                                  Container(
-                                    width: 80,
-                                    height: 80,
-                                    decoration: BoxDecoration(
-                                      color: AppColors.accent.withValues(alpha: 0.2),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.auto_awesome_rounded,
-                                      size: 40,
-                                      color: AppColors.accent,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  
-                                  // Title
-                                  Text(
-                                    'Ready to Plan?',
-                                    style: Theme.of(context).textTheme.displayMedium,
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  
-                                  // Description
-                                  Text(
-                                    'We\'ve gathered your preferences and are ready to build your perfect Egyptian adventure.',
-                                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                          color: AppColors.charcoal.withValues(alpha: 0.6),
-                                        ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 3,
-                                  ),
-                                  const SizedBox(height: 40),
-                                  
-                                  // Summary Card
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.all(24),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: AppColors.secondary.withValues(alpha: 0.2),
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.05),
-                                          blurRadius: 20,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Trip Summary',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge
-                                              ?.copyWith(
-                                                color: AppColors.charcoal,
-                                              ),
-                                        ),
-                                        const Divider(height: 24),
-                                        _SummaryItem(
-                                          icon: Icons.location_on_rounded,
-                                          label: 'Destination',
-                                          value: '${widget.preferences.city ?? 'Cairo'}, Egypt',
-                                        ),
-                                        const SizedBox(height: 16),
-                                        _SummaryItem(
-                                          icon: Icons.calendar_today_rounded,
-                                          label: 'Duration',
-                                          value: '${widget.preferences.durationDays ?? 1} Days',
-                                        ),
-                                        const SizedBox(height: 16),
-                                        _SummaryItem(
-                                          icon: Icons.account_balance_wallet_rounded,
-                                          label: 'Budget',
-                                          value: widget.preferences.getBudgetDisplay(),
-                                        ),
-                                        const SizedBox(height: 16),
-                                        _SummaryItem(
-                                          icon: Icons.favorite_rounded,
-                                          label: 'Interests',
-                                          value: widget.preferences.interests.join(', '),
-                                        ),
-                                        if (widget.preferences.specificInterest != null && widget.preferences.specificInterest!.isNotEmpty) ...[
-                                          const SizedBox(height: 16),
-                                          _SummaryItem(
-                                            icon: Icons.tips_and_updates_rounded,
-                                            label: 'Specific Request',
-                                            value: widget.preferences.specificInterest!,
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
+        child: Column(
+          children: [
+            // Header with Back Button
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: widget.onBack,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.secondary.withValues(alpha: 0.3),
+                        ),
                       ),
-                      
-                      const SizedBox(height: 40),
-                      
-                      // Bottom content (Button and Error Message)
-                      Column(
-                        children: [
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: _isGenerating ? null : _generateTrip,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.primary,
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                elevation: 12,
-                                shadowColor: AppColors.primary.withValues(alpha: 0.3),
-                                disabledBackgroundColor: Colors.grey[300],
-                              ),
-                              child: _isGenerating
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                      ),
-                                    )
-                                  : const Text(
-                                      'Generate My Trip',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                          if (_errorMessage != null) ...[
-                            const SizedBox(height: 24),
-                            Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.red.withValues(alpha: 0.05),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.red.withValues(alpha: 0.2),
-                                ),
-                              ),
-                              child: Text(
-                                _errorMessage!,
-                                style: const TextStyle(
-                                  color: Colors.red,
-                                  fontSize: 13,
-                                  height: 1.5,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          ],
-                        ],
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: AppColors.charcoal,
                       ),
-                    ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Scrollable Content
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: FadeTransition(
+                  opacity: _animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.2),
+                      end: Offset.zero,
+                    ).animate(_animation),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 24),
+                        
+                        // Icon
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: AppColors.accent.withValues(alpha: 0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.auto_awesome_rounded,
+                            size: 40,
+                            color: AppColors.accent,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        
+                        // Title
+                        Text(
+                          'Ready to Plan?',
+                          style: Theme.of(context).textTheme.displayMedium,
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        
+                        // Description
+                        Text(
+                          'We\'ve gathered your preferences and are ready to build your perfect Egyptian adventure.',
+                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: AppColors.charcoal.withValues(alpha: 0.6),
+                              ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 32),
+                        
+                        // Summary Card
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: AppColors.secondary.withValues(alpha: 0.2),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.05),
+                                blurRadius: 20,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Trip Summary',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(
+                                      color: AppColors.charcoal,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                              ),
+                              const Divider(height: 20),
+                              _SummaryItem(
+                                icon: Icons.location_on_rounded,
+                                label: 'Destination',
+                                value: '${widget.preferences.city ?? 'Cairo'}, Egypt',
+                              ),
+                              const SizedBox(height: 12),
+                              _SummaryItem(
+                                icon: Icons.calendar_today_rounded,
+                                label: 'Duration',
+                                value: '${widget.preferences.durationDays ?? 1} Days',
+                              ),
+                              const SizedBox(height: 12),
+                              _SummaryItem(
+                                icon: Icons.account_balance_wallet_rounded,
+                                label: 'Budget',
+                                value: widget.preferences.getBudgetDisplay(),
+                              ),
+                              const SizedBox(height: 12),
+                              _SummaryItem(
+                                icon: Icons.favorite_rounded,
+                                label: 'Interests',
+                                value: widget.preferences.interests.join(', '),
+                              ),
+                              if (widget.preferences.specificInterest != null && widget.preferences.specificInterest!.isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                _SummaryItem(
+                                  icon: Icons.tips_and_updates_rounded,
+                                  label: 'Specific Request',
+                                  value: widget.preferences.specificInterest!,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            );
-          },
+            ),
+            
+            // Bottom Button Area (Fixed at bottom)
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.cream.withValues(alpha: 0),
+                    AppColors.cream,
+                    AppColors.cream,
+                  ],
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _isGenerating ? null : _generateTrip,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        elevation: 12,
+                        shadowColor: AppColors.primary.withValues(alpha: 0.3),
+                        disabledBackgroundColor: Colors.grey[300],
+                      ),
+                      child: _isGenerating
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const Text(
+                              'Generate My Trip',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                    ),
+                  ),
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.red.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Text(
+                        _errorMessage!,
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 13,
+                          height: 1.5,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -369,6 +399,7 @@ class _SummaryItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
           width: 32,
@@ -394,16 +425,20 @@ class _SummaryItem extends StatelessWidget {
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
                   color: Colors.grey[400],
+                  letterSpacing: 0.5,
                 ),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
                 value,
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: AppColors.charcoal,
+                  height: 1.4,
                 ),
+                maxLines: 5,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),

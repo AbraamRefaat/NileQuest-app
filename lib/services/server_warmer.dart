@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'server_config.dart';
 
-/// Keeps the Railway server warm by pinging it periodically
+/// Keeps the recommendation server warm by pinging it periodically
 /// This prevents cold start delays when users make requests
 class ServerWarmer {
   static Timer? _warmupTimer;
@@ -13,12 +13,12 @@ class ServerWarmer {
     if (_isWarming) return;
     
     _isWarming = true;
-    print('🔥 Server warmer started - keeping Railway server alive');
+    print('🔥 Server warmer started - keeping recommendation server alive');
     
     // Warm immediately on start
     _warmServer();
     
-    // Then warm every 10 minutes (Railway sleeps after 15 min of inactivity)
+    // Then warm every 10 minutes (prevents sleeps after inactivity)
     _warmupTimer = Timer.periodic(
       const Duration(minutes: 10),
       (_) => _warmServer(),

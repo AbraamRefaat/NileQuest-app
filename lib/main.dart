@@ -15,7 +15,7 @@ import 'screens/preference_setup_screen.dart';
 import 'screens/trip_generation_screen.dart';
 import 'screens/loading_screen.dart';
 import 'screens/itinerary_screen.dart';
-import 'screens/map_screen.dart';
+import 'screens/enhanced_map_screen_v2_functional.dart';
 import 'screens/place_detail_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/trips_screen.dart';
@@ -101,6 +101,7 @@ class _AppNavigatorState extends State<AppNavigator> {
   Itinerary? _generatedItinerary;
   int? _selectedDayIndex;
   bool _isHistoryView = false;
+  int _preferenceInitialStep = 1;
   final AuthService _authService = AuthService();
   final GuestModeService _guestModeService = GuestModeService();
   final OnboardingService _onboardingService = OnboardingService();
@@ -284,12 +285,15 @@ class _AppNavigatorState extends State<AppNavigator> {
             if (!isAuthenticated && isGuest) {
               _showAuthRequiredDialog();
             } else {
+              setState(() => _preferenceInitialStep = 1);
               _navigateToScreen(AppScreen.preferences);
             }
           },
         );
       case AppScreen.preferences:
         return PreferenceSetupScreen(
+          initialStep: _preferenceInitialStep,
+          initialPreferences: _userPreferences,
           onComplete: (prefs) {
             _savePreferences(prefs);
             _navigateToScreen(AppScreen.tripGeneration);
@@ -308,6 +312,10 @@ class _AppNavigatorState extends State<AppNavigator> {
             _isHistoryView = false;
             _saveItinerary(itinerary);
             _navigateToScreen(AppScreen.loading);
+          },
+          onBack: () {
+            setState(() => _preferenceInitialStep = 6);
+            _navigateToScreen(AppScreen.preferences);
           },
         );
       case AppScreen.loading:
@@ -344,7 +352,10 @@ class _AppNavigatorState extends State<AppNavigator> {
           },
         );
       case AppScreen.map:
-        return const MapScreen();
+        return EnhancedMapScreenV2Functional(
+          itinerary: _generatedItinerary,
+          selectedDay: _selectedDayIndex,
+        );
       case AppScreen.placeDetail:
         return PlaceDetailScreen(
           event: _selectedDayIndex != null && _generatedItinerary != null
