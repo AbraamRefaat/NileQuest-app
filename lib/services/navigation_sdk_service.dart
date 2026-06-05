@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 
 class NavigationSDKService {
-  static const String _apiKey = 'AIzaSyBCzhyILiS8FlaBqWepcZpUJNTra-ce3Do';
+  static const String _apiKey = 'AIzaSyBGqoMpCdzZt8bRE3I4K3sc2R9eueddPVA';
   static const String _baseUrl = 'https://routes.googleapis.com/directions/v2:computeRoutes';
   
   final Dio _dio = Dio();

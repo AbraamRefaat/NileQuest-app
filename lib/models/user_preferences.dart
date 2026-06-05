@@ -125,13 +125,13 @@ class UserPreferences {
   }
 
   String getBudgetDisplay() {
-    switch (budgetTier) {
+    switch (budgetTier?.toLowerCase()) {
       case 'budget':
-        return 'Budget (~1500 EGP/day)';
+        return 'Budget';
       case 'moderate':
-        return 'Moderate (~3500 EGP/day)';
+        return 'Moderate';
       case 'luxury':
-        return 'Luxury (~10000 EGP/day)';
+        return 'Luxury';
       default:
         return 'Moderate';
     }

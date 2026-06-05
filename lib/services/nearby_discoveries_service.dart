@@ -3,7 +3,7 @@ import 'package:dio/dio.dart';
 
 /// Service for discovering nearby attractions and services
 class NearbyDiscoveriesService {
-  static const String _googleApiKey = 'AIzaSyBCzhyILiS8FlaBqWepcZpUJNTra-ce3Do';
+  static const String _googleApiKey = 'AIzaSyBGqoMpCdzZt8bRE3I4K3sc2R9eueddPVA';
   final Dio _dio = Dio();
 
   /// Find nearby attractions within walking distance
