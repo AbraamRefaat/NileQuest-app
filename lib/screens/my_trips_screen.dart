@@ -436,14 +436,12 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
                         const SizedBox(height: 12),
                       ],
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
                           _buildStat(Icons.calendar_today_outlined, 
                               '${itinerary?.totalDays ?? summary?['total_days'] ?? 0} Days'),
                           _buildStat(Icons.place_outlined, 
                               '${itinerary?.totalPois ?? summary?['total_pois'] ?? 0} Places'),
-                          _buildStat(Icons.payments_outlined, 
-                              '${itinerary?.totalCost.toStringAsFixed(0) ?? summary?['total_cost_egp']?.toString() ?? '0'} EGP'),
                         ],
                       ),
                     ],

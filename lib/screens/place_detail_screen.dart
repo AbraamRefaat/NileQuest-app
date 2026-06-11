@@ -440,7 +440,7 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                                     ),
                                   ),
                                   Text(
-                                    poi.cost == 0 ? 'Free' : '${poi.cost.toStringAsFixed(0)} EGP',
+                                    poi.priceDisplay,
                                     style: const TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.bold,

@@ -240,44 +240,7 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
                                 ],
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.secondary,
-                                borderRadius: BorderRadius.circular(20),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppColors.secondary.withValues(alpha: 0.4),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    widget.itinerary!.totalCost.toStringAsFixed(0),
-                                    style: const TextStyle(
-                                      color: AppColors.primary,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  Text(
-                                    'EGP',
-                                    style: TextStyle(
-                                      color: AppColors.primary.withValues(alpha: 0.8),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+
                           ],
                         ),
                       ],
@@ -519,10 +482,7 @@ class _DayCardState extends State<DayCard> with AutomaticKeepAliveClientMixin {
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final totalCost = widget.events.fold<double>(
-      0, 
-      (sum, event) => sum + event.poi.cost,
-    );
+
 
     String title = 'Day ${widget.day}';
     if (widget.events.isNotEmpty) {
@@ -670,21 +630,7 @@ class _DayCardState extends State<DayCard> with AutomaticKeepAliveClientMixin {
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              Icon(
-                                Icons.account_balance_wallet_rounded,
-                                size: 13,
-                                color: AppColors.charcoal.withValues(alpha: 0.5),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${totalCost.toStringAsFixed(0)} EGP',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.charcoal.withValues(alpha: 0.7),
-                                ),
-                              ),
+
                             ],
                           ),
                         ],
@@ -1034,7 +980,7 @@ class _ActivityItemState extends State<_ActivityItem> {
                                       ),
                                       const SizedBox(width: 4),
                                       Text(
-                                        poi.cost == 0 ? 'Free' : '${poi.cost.toStringAsFixed(0)}',
+                                        poi.priceDisplay,
                                         style: const TextStyle(
                                           fontSize: 11,
                                           fontWeight: FontWeight.w600,
@@ -1325,11 +1271,10 @@ class _TripSummaryCard extends StatelessWidget {
             const SizedBox(height: 16),
           ],
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               _buildStat(Icons.calendar_today_outlined, '${itinerary.totalDays} Days'),
               _buildStat(Icons.place_outlined, '${itinerary.totalPois} Places'),
-              _buildStat(Icons.payments_outlined, '${itinerary.totalCost.toStringAsFixed(0)} EGP'),
             ],
           ),
         ],

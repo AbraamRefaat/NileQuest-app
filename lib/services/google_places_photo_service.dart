@@ -2,7 +2,7 @@ import 'package:dio/dio.dart';
 
 class GooglePlacesPhotoService {
   static const String _baseUrl = 'https://maps.googleapis.com/maps/api';
-  static const String _apiKey = 'AIzaSyBCzhyILiS8FlaBqWepcZpUJNTra-ce3Do';
+  static const String _apiKey = 'AIzaSyBGqoMpCdzZt8bRE3I4K3sc2R9eueddPVA';
 
   // In-memory caches to save API costs and improve performance
   final Map<String, String> _singlePhotoCache = {};

@@ -1,7 +1,7 @@
 const { MongoClient, ObjectId } = require('mongodb');
 
 // MongoDB Atlas Connection URI
-const uri = "mongodb+srv://abraamrefaat_db_user:NileQuest_23@cluster0.xktyimj.mongodb.net/?appName=Cluster0";
+const uri = "mongodb+srv://abraamrefaat0_db_user:jqmxwINbGTzFOECi@cluster0.ifbxydi.mongodb.net/?appName=Cluster0";
 const client = new MongoClient(uri);
 
 let dbConnection;

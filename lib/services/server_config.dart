@@ -13,7 +13,7 @@ class ServerConfig {
   
   /// Get default URL based on platform
   static String _getDefaultUrl() {
-    return 'http://51.20.9.180:8000';
+    return 'http://15.228.191.11:8000';
   }
   
   /// Force re-discovery of server (clears cache)

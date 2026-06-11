@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:async';
+import 'dart:io' show Platform;
+import 'dart:math' as math;
 import '../theme.dart';
 import '../models/tourist_attraction.dart';
 import '../models/itinerary.dart';
@@ -10,7 +15,18 @@ import '../services/places_service.dart';
 import '../services/itinerary_map_service.dart';
 import '../services/nearby_discoveries_service.dart';
 import '../services/audio_guide_service.dart';
+import '../services/google_places_photo_service.dart';
 import '../widgets/modern_map_panels.dart';
+
+enum MapStyleKind { outdoors, streets, satellite, dark, light }
+
+class _AttractionTapHandler extends OnPointAnnotationClickListener {
+  _AttractionTapHandler(this.onTap);
+  final void Function(PointAnnotation) onTap;
+
+  @override
+  void onPointAnnotationClick(PointAnnotation annotation) => onTap(annotation);
+}
 
 /// 🎨 FULLY FUNCTIONAL BEAUTIFUL MAP
 /// Everything works perfectly for tourists!
@@ -41,6 +57,7 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
   final ItineraryMapService _itineraryService = ItineraryMapService();
   final NearbyDiscoveriesService _nearbyService = NearbyDiscoveriesService();
   final AudioGuideService _audioService = AudioGuideService();
+  final GooglePlacesPhotoService _photoService = GooglePlacesPhotoService();
 
   // Data
   List<TouristAttraction> _allAttractions = [];
@@ -64,6 +81,14 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
   // Itinerary mode
   bool _isItineraryMode = false;
   int? _currentDay;
+
+  // Style + view
+  MapStyleKind _styleKind = MapStyleKind.outdoors;
+  bool _is3D = false;
+  bool _showStyleMenu = false;
+  String? _selectedPhotoUrl;
+  bool _isLoadingSelectedPhoto = false;
+  Timer? _searchDebounce;
   
   // Animation controllers
   late AnimationController _fabController;
@@ -90,10 +115,14 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
       _loadItineraryPoints();
     }
 
-    // Listen to search changes
+    // Listen to search changes (debounced)
     _searchTextController.addListener(() {
-      setState(() {
-        _searchQuery = _searchTextController.text;
+      _searchDebounce?.cancel();
+      _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+        if (!mounted) return;
+        setState(() {
+          _searchQuery = _searchTextController.text;
+        });
         _filterAttractions();
       });
     });
@@ -134,6 +163,7 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _fabController.dispose();
     _searchController.dispose();
     _panelController.dispose();
@@ -233,7 +263,7 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
       filtered = filtered.where((attraction) {
         return attraction.name.toLowerCase().contains(query) ||
                attraction.category.toLowerCase().contains(query) ||
-               (attraction.description?.toLowerCase().contains(query) ?? false);
+               attraction.description.toLowerCase().contains(query);
       }).toList();
     }
 
@@ -242,7 +272,14 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     });
 
     if (_mapboxMap != null) {
-      _addAttractionMarkers();
+      _addAttractionMarkers().then((_) {
+        // Auto-fit only when user is actively narrowing (category or text)
+        if (_isMapReady &&
+            (_selectedCategory != 'All' || _searchQuery.isNotEmpty) &&
+            filtered.length >= 2) {
+          _fitToFiltered();
+        }
+      });
     }
   }
 
@@ -253,16 +290,21 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     await _pointAnnotationManager?.deleteAll();
     _markerToAttraction.clear();
 
-    // Add markers for filtered attractions
+    // Add markers for filtered attractions, colored by category
     for (var attraction in _filteredAttractions) {
       final point = Point(
         coordinates: Position(attraction.longitude, attraction.latitude),
       );
 
+      final color = _getCategoryColor(attraction.category);
+      final selected = _selectedAttraction?.id == attraction.id;
+
       final options = PointAnnotationOptions(
         geometry: point,
         iconImage: 'marker-15',
-        iconSize: 1.5,
+        iconSize: selected ? 2.2 : 1.6,
+        iconColor: color.toARGB32(),
+        symbolSortKey: selected ? 100.0 : (attraction.rating ?? 0).toDouble(),
       );
 
       final annotation = await _pointAnnotationManager?.create(options);
@@ -1035,44 +1077,125 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
   }
 
   Widget _buildMapControls() {
+    final whiteGradient = LinearGradient(
+      colors: [
+        Colors.white.withValues(alpha: 0.95),
+        Colors.white.withValues(alpha: 0.85),
+      ],
+    );
+    final accentGradient = LinearGradient(
+      colors: [
+        AppColors.primary.withValues(alpha: 0.18),
+        AppColors.primary.withValues(alpha: 0.1),
+      ],
+    );
     return Positioned(
       right: 16,
       top: 200,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           _buildGlassButton(
             icon: Icons.add_rounded,
             onPressed: () => _zoomMap(true),
-            gradient: LinearGradient(
-              colors: [
-                Colors.white.withValues(alpha: 0.95),
-                Colors.white.withValues(alpha: 0.85),
-              ],
-            ),
+            gradient: whiteGradient,
           ),
           const SizedBox(height: 8),
           _buildGlassButton(
             icon: Icons.remove_rounded,
             onPressed: () => _zoomMap(false),
-            gradient: LinearGradient(
-              colors: [
-                Colors.white.withValues(alpha: 0.95),
-                Colors.white.withValues(alpha: 0.85),
-              ],
-            ),
+            gradient: whiteGradient,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          _buildGlassButton(
+            icon: _is3D ? Icons.threed_rotation_rounded : Icons.threed_rotation_outlined,
+            onPressed: _toggle3D,
+            gradient: _is3D ? accentGradient : whiteGradient,
+          ),
+          const SizedBox(height: 8),
+          _buildGlassButton(
+            icon: Icons.layers_outlined,
+            onPressed: () => setState(() => _showStyleMenu = !_showStyleMenu),
+            gradient: _showStyleMenu ? accentGradient : whiteGradient,
+          ),
+          if (_showStyleMenu) ...[
+            const SizedBox(height: 8),
+            _buildStyleMenu(),
+          ],
+          const SizedBox(height: 12),
+          _buildGlassButton(
+            icon: Icons.fit_screen_rounded,
+            onPressed: _fitToFiltered,
+            gradient: whiteGradient,
+          ),
+          const SizedBox(height: 8),
           _buildGlassButton(
             icon: Icons.my_location_rounded,
             onPressed: _recenterMap,
-            gradient: LinearGradient(
-              colors: [
-                AppColors.primary.withValues(alpha: 0.15),
-                AppColors.primary.withValues(alpha: 0.1),
-              ],
-            ),
+            gradient: accentGradient,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStyleMenu() {
+    final styles = <(String, IconData, MapStyleKind)>[
+      ('Outdoors', Icons.terrain_rounded, MapStyleKind.outdoors),
+      ('Streets', Icons.map_rounded, MapStyleKind.streets),
+      ('Satellite', Icons.satellite_alt_rounded, MapStyleKind.satellite),
+      ('Light', Icons.light_mode_rounded, MapStyleKind.light),
+      ('Dark', Icons.dark_mode_rounded, MapStyleKind.dark),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: styles.map((s) {
+          final (label, icon, kind) = s;
+          final selected = _styleKind == kind;
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _changeStyle(kind),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AppColors.primary.withValues(alpha: 0.12)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 18, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                        color: AppColors.charcoal,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -1257,114 +1380,314 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
   }
 
   Widget _buildAttractionCard() {
+    final a = _selectedAttraction!;
+    final categoryColor = _getCategoryColor(a.category);
+    final distanceKm = _userLocation == null
+        ? null
+        : _haversineKm(
+            _userLocation!.lat.toDouble(),
+            _userLocation!.lng.toDouble(),
+            a.latitude,
+            a.longitude,
+          );
+
     return Positioned(
       bottom: 20,
-      left: 20,
-      right: 20,
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 30,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      left: 16,
+      right: 16,
+      child: AnimatedSlide(
+        offset: Offset.zero,
+        duration: const Duration(milliseconds: 250),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 30,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                child: SizedBox(
+                  height: 140,
+                  width: double.infinity,
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Text(
-                        _selectedAttraction!.name,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.charcoal,
+                      if (_selectedPhotoUrl != null)
+                        CachedNetworkImage(
+                          imageUrl: _selectedPhotoUrl!,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => _photoPlaceholder(categoryColor),
+                          errorWidget: (_, __, ___) => _photoPlaceholder(categoryColor),
+                        )
+                      else if (_isLoadingSelectedPhoto)
+                        _photoPlaceholder(categoryColor, showSpinner: true)
+                      else
+                        _photoPlaceholder(categoryColor),
+                      Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.55),
+                            ],
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _selectedAttraction!.category,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppColors.charcoal.withValues(alpha: 0.6),
+                      Positioned(
+                        left: 12,
+                        bottom: 10,
+                        right: 60,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: categoryColor,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                a.category,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              a.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                shadows: [Shadow(blurRadius: 6, color: Colors.black54)],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Material(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () => setState(() {
+                              _selectedAttraction = null;
+                              _selectedPhotoUrl = null;
+                              _addAttractionMarkers();
+                            }),
+                            child: const Padding(
+                              padding: EdgeInsets.all(6),
+                              child: Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                            ),
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => setState(() => _selectedAttraction = null),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        if (a.rating != null) ...[
+                          const Icon(Icons.star_rounded, size: 18, color: Color(0xFFF5A623)),
+                          const SizedBox(width: 4),
+                          Text(
+                            a.rating!.toStringAsFixed(1),
+                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                          ),
+                          if (a.userRatingsTotal != null) ...[
+                            const SizedBox(width: 4),
+                            Text(
+                              '(${a.userRatingsTotal})',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.charcoal.withValues(alpha: 0.6),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(width: 12),
+                        ],
+                        if (distanceKm != null) ...[
+                          Icon(Icons.near_me_rounded,
+                              size: 16, color: AppColors.primary.withValues(alpha: 0.8)),
+                          const SizedBox(width: 4),
+                          Text(
+                            distanceKm < 1
+                                ? '${(distanceKm * 1000).round()} m'
+                                : '${distanceKm.toStringAsFixed(1)} km',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(width: 12),
+                        ],
+                        if (a.isOpen != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: (a.isOpen! ? Colors.green : Colors.red).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              a.isOpen! ? 'Open' : 'Closed',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: a.isOpen! ? Colors.green.shade700 : Colors.red.shade700,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (a.description.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        a.description,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          color: AppColors.charcoal.withValues(alpha: 0.8),
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _openDirections(a),
+                            icon: const Icon(Icons.directions_rounded, size: 18),
+                            label: const Text('Directions'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        _smallIconButton(
+                          icon: Icons.ios_share_rounded,
+                          tooltip: 'Share',
+                          onTap: () => Share.share(
+                            '${a.name} in ${a.city}\nhttps://maps.google.com/?q=${a.latitude},${a.longitude}',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _smallIconButton(
+                          icon: Icons.copy_rounded,
+                          tooltip: 'Copy coordinates',
+                          onTap: () {
+                            Clipboard.setData(ClipboardData(
+                              text: '${a.latitude}, ${a.longitude}',
+                            ));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Coordinates copied'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            if (_selectedAttraction!.description != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _selectedAttraction!.description!,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppColors.charcoal.withValues(alpha: 0.8),
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
             ],
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      // Navigate to attraction
-                    },
-                    icon: const Icon(Icons.directions_rounded),
-                    label: const Text('Directions'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      // View details
-                    },
-                    icon: const Icon(Icons.info_outline_rounded),
-                    label: const Text('Details'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      side: const BorderSide(color: AppColors.primary, width: 2),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  Widget _photoPlaceholder(Color color, {bool showSpinner = false}) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [color.withValues(alpha: 0.85), color.withValues(alpha: 0.5)],
+        ),
+      ),
+      child: Center(
+        child: showSpinner
+            ? const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+            : Icon(Icons.image_rounded, color: Colors.white.withValues(alpha: 0.85), size: 48),
+      ),
+    );
+  }
+
+  Widget _smallIconButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Icon(icon, color: AppColors.primary, size: 20),
+          ),
+        ),
+      ),
+    );
+  }
+
+  double _haversineKm(double lat1, double lng1, double lat2, double lng2) {
+    const r = 6371.0;
+    double deg2rad(double d) => d * math.pi / 180.0;
+    final dLat = deg2rad(lat2 - lat1);
+    final dLng = deg2rad(lng2 - lng1);
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(deg2rad(lat1)) * math.cos(deg2rad(lat2)) *
+            math.sin(dLng / 2) * math.sin(dLng / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return r * c;
   }
 
   // Helper Methods
@@ -1464,8 +1787,13 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     _pointAnnotationManager = await _mapboxMap?.annotations.createPointAnnotationManager();
     _polylineAnnotationManager = await _mapboxMap?.annotations.createPolylineAnnotationManager();
 
-    // Setup click listener (using newer API)
-    // Note: Click handling can be implemented with tapEvents in newer Mapbox versions
+    // Wire up marker tap → open attraction card
+    _pointAnnotationManager?.addOnPointAnnotationClickListener(
+      _AttractionTapHandler(_handleMarkerTap),
+    );
+
+    // Show user location puck if permission was granted
+    await _enableLocationPuck();
 
     if (_isItineraryMode) {
       await _loadItineraryPoints();
@@ -1477,9 +1805,138 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
   }
 
   Future<void> _onMapTapped(MapContentGestureContext gestureContext) async {
-    // Close attraction card when tapping map
-    if (_selectedAttraction != null) {
-      setState(() => _selectedAttraction = null);
+    // Close attraction card / style menu when tapping map
+    if (_selectedAttraction != null || _showStyleMenu) {
+      setState(() {
+        _selectedAttraction = null;
+        _selectedPhotoUrl = null;
+        _showStyleMenu = false;
+      });
+      _addAttractionMarkers();
+    }
+  }
+
+  void _handleMarkerTap(PointAnnotation annotation) {
+    final attraction = _markerToAttraction[annotation.id];
+    if (attraction == null) return;
+
+    HapticFeedback.selectionClick();
+    setState(() {
+      _selectedAttraction = attraction;
+      _selectedPhotoUrl = null;
+      _isLoadingSelectedPhoto = true;
+    });
+
+    // Re-render markers so the selected one is enlarged
+    _addAttractionMarkers();
+
+    // Fly to it with a slight upward offset so the card doesn't cover it
+    _mapboxMap?.flyTo(
+      CameraOptions(
+        center: Point(coordinates: Position(attraction.longitude, attraction.latitude)),
+        zoom: 15.0,
+        padding: MbxEdgeInsets(top: 80, left: 0, bottom: 280, right: 0),
+      ),
+      MapAnimationOptions(duration: 800),
+    );
+
+    _loadSelectedPhoto(attraction);
+  }
+
+  Future<void> _loadSelectedPhoto(TouristAttraction a) async {
+    try {
+      final url = await _photoService.getPlacePhotoUrl(a.name, a.latitude, a.longitude);
+      if (!mounted || _selectedAttraction?.id != a.id) return;
+      setState(() {
+        _selectedPhotoUrl = url;
+        _isLoadingSelectedPhoto = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoadingSelectedPhoto = false);
+    }
+  }
+
+  Future<void> _enableLocationPuck() async {
+    try {
+      await _mapboxMap?.location.updateSettings(
+        LocationComponentSettings(
+          enabled: true,
+          pulsingEnabled: true,
+          showAccuracyRing: true,
+          puckBearingEnabled: true,
+        ),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _changeStyle(MapStyleKind kind) async {
+    setState(() {
+      _styleKind = kind;
+      _showStyleMenu = false;
+    });
+    final uri = switch (kind) {
+      MapStyleKind.outdoors => MapboxStyles.OUTDOORS,
+      MapStyleKind.streets => MapboxStyles.MAPBOX_STREETS,
+      MapStyleKind.satellite => MapboxStyles.SATELLITE_STREETS,
+      MapStyleKind.dark => MapboxStyles.DARK,
+      MapStyleKind.light => MapboxStyles.LIGHT,
+    };
+    await _mapboxMap?.loadStyleURI(uri);
+    // Re-create annotation managers since they get cleared on style change
+    _pointAnnotationManager = await _mapboxMap?.annotations.createPointAnnotationManager();
+    _polylineAnnotationManager = await _mapboxMap?.annotations.createPolylineAnnotationManager();
+    _pointAnnotationManager?.addOnPointAnnotationClickListener(
+      _AttractionTapHandler(_handleMarkerTap),
+    );
+    if (_isItineraryMode) {
+      await _addItineraryMarkers();
+      await _drawItineraryRoute();
+    } else {
+      await _addAttractionMarkers();
+    }
+  }
+
+  Future<void> _toggle3D() async {
+    setState(() => _is3D = !_is3D);
+    final state = await _mapboxMap?.getCameraState();
+    if (state == null) return;
+    await _mapboxMap?.flyTo(
+      CameraOptions(
+        center: state.center,
+        zoom: _is3D ? (state.zoom < 14 ? 14 : state.zoom) : state.zoom,
+        pitch: _is3D ? 60.0 : 0.0,
+        bearing: _is3D ? 30.0 : 0.0,
+      ),
+      MapAnimationOptions(duration: 800),
+    );
+  }
+
+  Future<void> _fitToFiltered() async {
+    if (_mapboxMap == null || _filteredAttractions.length < 2) return;
+    final points = _filteredAttractions
+        .map((a) => Point(coordinates: Position(a.longitude, a.latitude)))
+        .toList();
+    try {
+      final cam = await _mapboxMap!.cameraForCoordinates(
+        points,
+        MbxEdgeInsets(top: 180, left: 40, bottom: 200, right: 40),
+        null,
+        null,
+      );
+      await _mapboxMap?.flyTo(cam, MapAnimationOptions(duration: 1000));
+    } catch (_) {}
+  }
+
+  Future<void> _openDirections(TouristAttraction a) async {
+    final lat = a.latitude;
+    final lng = a.longitude;
+    final scheme = Platform.isIOS
+        ? 'https://maps.apple.com/?daddr=$lat,$lng&dirflg=d'
+        : 'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving';
+    final uri = Uri.parse(scheme);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 }

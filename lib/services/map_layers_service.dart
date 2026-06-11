@@ -3,7 +3,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 /// Service for managing different map layers (transport, amenities, safety, etc.)
 class MapLayersService {
-  static const String _googleApiKey = 'AIzaSyBCzhyILiS8FlaBqWepcZpUJNTra-ce3Do';
+  static const String _googleApiKey = 'AIzaSyBGqoMpCdzZt8bRE3I4K3sc2R9eueddPVA';
   final Dio _dio = Dio();
 
   /// Get nearby transport options (metro, bus, taxi stands)

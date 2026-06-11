@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 
 /// Service for generating heatmaps (crowd density, popular times, safety zones)
 class HeatmapService {
-  static const String _googleApiKey = 'AIzaSyBCzhyILiS8FlaBqWepcZpUJNTra-ce3Do';
+  static const String _googleApiKey = 'AIzaSyBGqoMpCdzZt8bRE3I4K3sc2R9eueddPVA';
   final Dio _dio = Dio();
 
   /// Get popular times heatmap data for an area
