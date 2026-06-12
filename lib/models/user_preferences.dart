@@ -19,6 +19,32 @@ class UserPreferences {
     this.specificInterest,
   });
 
+  Map<String, dynamic> toJson() => {
+        'city': city,
+        'durationDays': durationDays,
+        'budgetTier': budgetTier,
+        'interests': interests,
+        'pace': pace,
+        'startTime': startTime,
+        'endTime': endTime,
+        'specificInterest': specificInterest,
+      };
+
+  factory UserPreferences.fromJson(Map<String, dynamic> json) =>
+      UserPreferences(
+        city: json['city'],
+        durationDays: json['durationDays'],
+        budgetTier: json['budgetTier'],
+        interests: (json['interests'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            const [],
+        pace: json['pace'],
+        startTime: json['startTime'] ?? '09:00',
+        endTime: json['endTime'] ?? '18:00',
+        specificInterest: json['specificInterest'],
+      );
+
   // Convert ordered interests list to weighted map
   // First interest gets weight 1.0, second 0.9, third 0.8, etc., minimum 0.1
   Map<String, double> getInterestsWeighted() {

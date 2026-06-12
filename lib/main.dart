@@ -23,6 +23,7 @@ import 'widgets/auth_required_dialog.dart';
 import 'models/user_preferences.dart';
 import 'models/itinerary.dart';
 import 'services/auth_service.dart';
+import 'services/current_trip_service.dart';
 import 'services/guest_mode_service.dart';
 import 'services/onboarding_service.dart';
 import 'services/server_warmer.dart';
@@ -110,6 +111,7 @@ class _AppNavigatorState extends State<AppNavigator> {
   bool _isHistoryView = false;
   int _preferenceInitialStep = 1;
   final AuthService _authService = AuthService();
+  final CurrentTripService _currentTripService = CurrentTripService();
   final GuestModeService _guestModeService = GuestModeService();
   final OnboardingService _onboardingService = OnboardingService();
 
@@ -126,6 +128,7 @@ class _AppNavigatorState extends State<AppNavigator> {
     final currentUser = _authService.currentUser;
     if (currentUser != null) {
       // User is authenticated, go to home
+      await _restoreCurrentTrip();
       if (mounted) {
         setState(() {
           _currentScreen = AppScreen.home;
@@ -139,6 +142,7 @@ class _AppNavigatorState extends State<AppNavigator> {
     final isGuest = await _guestModeService.isGuestMode();
     if (isGuest) {
       // User is in guest mode, go to home
+      await _restoreCurrentTrip();
       if (mounted) {
         setState(() {
           _currentScreen = AppScreen.home;
@@ -183,10 +187,33 @@ class _AppNavigatorState extends State<AppNavigator> {
     setState(() {
       _generatedItinerary = itinerary;
     });
+    // Persist the current trip so it survives app restarts. History views
+    // are someone else's saved trip — never overwrite the active one.
+    if (!_isHistoryView) {
+      _currentTripService.save(
+        itinerary: itinerary,
+        preferences: _userPreferences,
+        backendId: _currentTripBackendId,
+      );
+    }
+  }
+
+  /// Bring back the active trip after an app restart so it stays on the
+  /// Trip tab instead of silently "moving" to history.
+  Future<void> _restoreCurrentTrip() async {
+    final saved = await _currentTripService.restore();
+    if (saved == null || !mounted) return;
+    setState(() {
+      _generatedItinerary = saved.itinerary;
+      _userPreferences = saved.preferences ?? _userPreferences;
+      _currentTripBackendId = saved.backendId;
+      _isHistoryView = false;
+    });
   }
 
   /// Clear the current trip from the Trip tab so it only lives in history.
   void _clearCurrentTrip() {
+    _currentTripService.clear();
     setState(() {
       _generatedItinerary = null;
       _currentTripBackendId = null;
@@ -301,16 +328,20 @@ class _AppNavigatorState extends State<AppNavigator> {
             final isGuest = await _guestModeService.isGuestMode();
             if (!isAuthenticated && isGuest) {
               _showAuthRequiredDialog();
-            } else {
-              setState(() => _preferenceInitialStep = 1);
-              _navigateToScreen(AppScreen.preferences);
+              return;
             }
+            setState(() => _preferenceInitialStep = 1);
+            _navigateToScreen(AppScreen.preferences);
           },
         );
       case AppScreen.preferences:
         return PreferenceSetupScreen(
           initialStep: _preferenceInitialStep,
-          initialPreferences: _userPreferences,
+          // From Home the wizard always starts blank (step 1) — choices from
+          // the previous trip must not pre-fill a new one. Stepping back from
+          // the generation screen (step 6) keeps the in-progress choices.
+          initialPreferences:
+              _preferenceInitialStep == 1 ? null : _userPreferences,
           onComplete: (prefs) {
             _savePreferences(prefs);
             _navigateToScreen(AppScreen.tripGeneration);
@@ -326,6 +357,9 @@ class _AppNavigatorState extends State<AppNavigator> {
         return TripGenerationScreen(
           preferences: _userPreferences!,
           onGenerate: (itinerary) {
+            // The new trip replaces the old one as "current". The old trip's
+            // backend copy stops being hidden, so it shows up in Trip
+            // history from this moment — no confirmation needed.
             _isHistoryView = false;
             _currentTripBackendId = null;
             _saveItinerary(itinerary);
@@ -353,9 +387,22 @@ class _AppNavigatorState extends State<AppNavigator> {
           tripBackendId: _currentTripBackendId,
           onTripSaved: (id) {
             setState(() => _currentTripBackendId = id);
+            // Keep the persisted copy in sync so history can keep hiding
+            // the active trip after a restart.
+            if (!_isHistoryView) {
+              _currentTripService.setBackendId(id);
+            }
           },
           onItineraryChanged: (updated) {
             setState(() => _generatedItinerary = updated);
+            // Persist edits so the restored trip matches what's on screen.
+            if (!_isHistoryView) {
+              _currentTripService.save(
+                itinerary: updated,
+                preferences: _userPreferences,
+                backendId: _currentTripBackendId,
+              );
+            }
           },
           onPlaceClick: (dayIndex) {
             _selectDay(dayIndex);
@@ -396,6 +443,7 @@ class _AppNavigatorState extends State<AppNavigator> {
           onSignOut: () async {
             // Clear guest mode and auth, then go to welcome screen
             await _guestModeService.clearGuestMode();
+            await _currentTripService.clear();
             setState(() {
               _currentScreen = AppScreen.welcome;
               _activeTab = BottomNavTab.home;

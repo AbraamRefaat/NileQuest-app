@@ -104,13 +104,15 @@ class TripStorageService {
   }
 
   /// Pulls a Mongo-style id out of a POST response body, tolerating several
-  /// shapes: {_id}, {insertedId}, {id}, {trip: {_id}}, and {$oid} wrappers.
+  /// shapes: {tripId} (what api/trips.js actually returns), {_id},
+  /// {insertedId}, {id}, {trip: {_id}}, and {$oid} wrappers.
   String? _extractTripId(String body) {
     try {
       final decoded = jsonDecode(body);
       if (decoded is! Map<String, dynamic>) return null;
 
-      dynamic raw = decoded['_id'] ??
+      dynamic raw = decoded['tripId'] ??
+          decoded['_id'] ??
           decoded['insertedId'] ??
           decoded['id'] ??
           (decoded['trip'] is Map ? (decoded['trip'] as Map)['_id'] : null);

@@ -8,6 +8,7 @@ import '../models/itinerary_event.dart';
 import '../models/poi.dart';
 import '../services/google_places_photo_service.dart';
 import '../services/trip_storage_service.dart';
+import '../services/trip_title_generator.dart';
 import '../services/auth_service.dart';
 import '../services/itinerary_editor.dart';
 import '../services/trip_session_service.dart';
@@ -155,9 +156,10 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
 
   String get _saveTitle {
     if (widget.tripTitle != null) return widget.tripTitle!;
-    final city = widget.preferences?.city ?? 'Egypt';
-    final date = DateTime.now().toString().split(' ')[0];
-    return '$city Adventure ($date)';
+    if (_working != null) {
+      return TripTitleGenerator.generate(_working!, widget.preferences);
+    }
+    return '${widget.preferences?.city ?? 'Egypt'} Adventure';
   }
 
   Future<void> _persistEdits({bool showFeedback = true}) async {
@@ -341,7 +343,7 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
                                   ),
                                   const SizedBox(height: 12),
                                   Text(
-                                    '${widget.preferences!.city ?? 'Cairo'} Adventure',
+                                    _saveTitle,
                                     style: Theme.of(context)
                                         .textTheme
                                         .headlineMedium

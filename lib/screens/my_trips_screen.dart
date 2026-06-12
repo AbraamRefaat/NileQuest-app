@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 import '../models/itinerary.dart';
 import '../models/user_preferences.dart';
+import '../services/current_trip_service.dart';
 import '../services/trip_storage_service.dart';
 import 'itinerary_screen.dart';
 
@@ -48,13 +49,28 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
     super.dispose();
   }
 
+  /// Mongo `_id` of a fetched trip, tolerating both `{ $oid: ... }` and
+  /// plain-string shapes.
+  static String _tripId(Map<String, dynamic> trip) {
+    final raw = trip['_id'];
+    if (raw is Map) return raw[_mongoOid]?.toString() ?? raw.toString();
+    return raw?.toString() ?? '';
+  }
+
   Future<void> _loadTrips() async {
     setState(() => _isLoading = true);
     try {
       final trips = await _tripStorageService.getUserTrips();
+      // The active trip is auto-saved to the backend the moment it's
+      // generated — hide it here so it only shows up in history once the
+      // user finishes (or completes) it.
+      final activeId = await CurrentTripService().getBackendId();
+      final visible = activeId == null
+          ? trips
+          : trips.where((t) => _tripId(t) != activeId).toList();
       if (mounted) {
         setState(() {
-          _trips = trips;
+          _trips = visible;
           _isLoading = false;
         });
       }
