@@ -3,7 +3,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
 import '../services/auth_service.dart';
 import '../services/guest_mode_service.dart';
+import '../services/gamification_service.dart' as gam;
 import '../models/user.dart';
+import '../widgets/gamification/level_progress_bar.dart';
+import '../widgets/gamification/badges_grid.dart';
 
 class ProfileScreen extends StatefulWidget {
   final VoidCallback onSignOut;
@@ -210,6 +213,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             _buildBenefitItem('Sync across devices'),
                             _buildBenefitItem('Personalized recommendations'),
                             _buildBenefitItem('Access trip history'),
+                            _buildBenefitItem('Earn XP and unlock explorer badges'),
                           ],
                         ),
                       ),
@@ -407,9 +411,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     
                     const SizedBox(height: 32),
-                    
+
+                    // Your Journey (gamification)
+                    Text(
+                      'Your Journey',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    _buildJourneySection(),
+
                     const SizedBox(height: 32),
-                    
+
                     // Account Info
                     Text(
                       'Account Information',
@@ -576,6 +592,97 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildJourneySection() {
+    return FutureBuilder<gam.UserProgress>(
+      future: gam.GamificationService().getUserProgress(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const SizedBox(
+            height: 90,
+            child: Center(
+              child: CircularProgressIndicator(color: AppColors.primary),
+            ),
+          );
+        }
+        final progress = snapshot.data!;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            LevelProgressBar(progress: progress),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _buildJourneyStat(
+                  Icons.place_rounded,
+                  '${progress.visitedAttractions.length}',
+                  'Places',
+                ),
+                const SizedBox(width: 12),
+                _buildJourneyStat(
+                  Icons.directions_walk_rounded,
+                  progress.totalDistance.toStringAsFixed(1),
+                  'km walked',
+                ),
+                const SizedBox(width: 12),
+                _buildJourneyStat(
+                  Icons.photo_camera_rounded,
+                  '${progress.totalPhotos}',
+                  'Photos',
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Badges',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            BadgesGrid(progress: progress),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildJourneyStat(IconData icon, String value, String label) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: AppColors.secondary.withValues(alpha: 0.2),
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: AppColors.primary, size: 20),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppColors.charcoal,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: AppColors.charcoal.withValues(alpha: 0.55),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

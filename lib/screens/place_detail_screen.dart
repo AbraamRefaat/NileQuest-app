@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
+import '../constants/categories.dart';
 import '../models/itinerary_event.dart';
 import '../services/google_places_photo_service.dart';
+import '../services/favorites_service.dart';
 
 class PlaceDetailScreen extends StatefulWidget {
   final ItineraryEvent? event;
@@ -22,11 +24,44 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
   final GooglePlacesPhotoService _photoService = GooglePlacesPhotoService();
   String? _photoUrl;
   bool _isLoadingPhoto = false;
+  bool _isFavorite = false;
+
+  String? get _favoriteKey {
+    final poi = widget.event?.poi;
+    if (poi == null) return null;
+    return poi.id.isNotEmpty ? poi.id : poi.name;
+  }
 
   @override
   void initState() {
     super.initState();
     _loadPhoto();
+    _loadFavorite();
+  }
+
+  Future<void> _loadFavorite() async {
+    final key = _favoriteKey;
+    if (key == null) return;
+    final value = await FavoritesService().isFavorite(key);
+    if (mounted && value != _isFavorite) {
+      setState(() => _isFavorite = value);
+    }
+  }
+
+  Future<void> _toggleFavorite() async {
+    final key = _favoriteKey;
+    if (key == null) return;
+    final nowFavorite = await FavoritesService().toggle(key);
+    if (!mounted) return;
+    setState(() => _isFavorite = nowFavorite);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(nowFavorite ? 'Added to favorites ❤️' : 'Removed from favorites'),
+        backgroundColor: AppColors.charcoal,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 1),
+      ),
+    );
   }
 
   Future<void> _loadPhoto() async {
@@ -224,17 +259,24 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 12),
-                                Container(
-                                  width: 40,
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.2),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.favorite_border_rounded,
-                                    color: Colors.white,
-                                    size: 20,
+                                GestureDetector(
+                                  onTap: _toggleFavorite,
+                                  child: Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.2),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      _isFavorite
+                                          ? Icons.favorite_rounded
+                                          : Icons.favorite_border_rounded,
+                                      color: _isFavorite
+                                          ? Colors.redAccent
+                                          : Colors.white,
+                                      size: 20,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -259,7 +301,7 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: AppColors.accent,
+                                  color: categoryStyleFor(poi.category).color,
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(

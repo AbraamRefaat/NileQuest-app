@@ -28,16 +28,17 @@ class GamificationService {
     if (!progress.visitedAttractions.contains(attractionId)) {
       progress.visitedAttractions.add(attractionId);
       progress.xp += 50; // XP for visiting new place
-      
+      final leveledUp = _applyLevelUps(progress);
+
       await _saveProgress(progress);
-      
+
       // Check for new badges
       final newBadges = await _checkForNewBadges(progress);
-      
+
       return AchievementResult(
         xpGained: 50,
         newBadges: newBadges,
-        levelUp: _checkLevelUp(progress),
+        levelUp: leveledUp,
         message: 'Visited $attractionName! +50 XP',
       );
     }
@@ -50,28 +51,42 @@ class GamificationService {
     );
   }
 
-  /// Add distance traveled
-  Future<void> addDistance(double km) async {
+  /// Add distance traveled (checks distance badges).
+  Future<AchievementResult> addDistance(double km) async {
     final progress = await getUserProgress();
     progress.totalDistance += km;
+    final leveledUp = _applyLevelUps(progress);
     await _saveProgress(progress);
+
+    final newBadges = await _checkForNewBadges(progress);
+
+    return AchievementResult(
+      xpGained: 0,
+      newBadges: newBadges,
+      levelUp: leveledUp,
+      message: '',
+    );
   }
 
   /// Add photo taken
-  Future<AchievementResult> addPhoto() async {
+  Future<AchievementResult> addPhoto() => addPhotos(1);
+
+  /// Add several photos at once (one save + one badge check).
+  Future<AchievementResult> addPhotos(int count) async {
     final progress = await getUserProgress();
-    progress.totalPhotos += 1;
-    progress.xp += 10;
-    
+    progress.totalPhotos += count;
+    progress.xp += 10 * count;
+    final leveledUp = _applyLevelUps(progress);
+
     await _saveProgress(progress);
-    
+
     final newBadges = await _checkForNewBadges(progress);
-    
+
     return AchievementResult(
-      xpGained: 10,
+      xpGained: 10 * count,
       newBadges: newBadges,
-      levelUp: _checkLevelUp(progress),
-      message: 'Photo added! +10 XP',
+      levelUp: leveledUp,
+      message: count == 1 ? 'Photo added! +10 XP' : '$count photos! +${10 * count} XP',
     );
   }
 
@@ -80,15 +95,16 @@ class GamificationService {
     final progress = await getUserProgress();
     progress.totalTips += 1;
     progress.xp += 20;
-    
+    final leveledUp = _applyLevelUps(progress);
+
     await _saveProgress(progress);
-    
+
     final newBadges = await _checkForNewBadges(progress);
-    
+
     return AchievementResult(
       xpGained: 20,
       newBadges: newBadges,
-      levelUp: _checkLevelUp(progress),
+      levelUp: leveledUp,
       message: 'Tip shared! +20 XP',
     );
   }
@@ -300,10 +316,16 @@ class GamificationService {
     return newBadges;
   }
 
-  /// Check if user leveled up
-  bool _checkLevelUp(UserProgress progress) {
-    final requiredXP = _getXPForLevel(progress.level + 1);
-    return progress.xp >= requiredXP;
+  /// Applies any pending level-ups to [progress]. Returns true when at least
+  /// one level was gained. (Previously level-up was only reported, never
+  /// applied — the stored level stayed at 1 forever.)
+  bool _applyLevelUps(UserProgress progress) {
+    var leveled = false;
+    while (progress.xp >= _getXPForLevel(progress.level + 1)) {
+      progress.level++;
+      leveled = true;
+    }
+    return leveled;
   }
 
   /// Calculate XP required for level

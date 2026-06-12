@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
+import '../constants/categories.dart';
 import '../models/itinerary.dart';
 import '../models/user_preferences.dart';
 import '../models/itinerary_event.dart';
+import '../models/poi.dart';
 import '../services/google_places_photo_service.dart';
 import '../services/trip_storage_service.dart';
 import '../services/auth_service.dart';
+import '../services/itinerary_editor.dart';
+import '../services/trip_session_service.dart';
+import '../widgets/sheets/add_stop_sheet.dart';
 
 class ItineraryScreen extends StatefulWidget {
   final Itinerary? itinerary;
@@ -15,6 +20,20 @@ class ItineraryScreen extends StatefulWidget {
   final bool isHistoryView;
   final bool isEmbedded;
 
+  /// Backend id of the already-saved copy of this trip (null = not saved
+  /// yet). When set, auto-save is skipped and edits update that document.
+  final String? tripBackendId;
+
+  /// Enables edit mode. Called with the updated itinerary after every edit
+  /// so the owner (main.dart) can propagate it to the map screen.
+  final ValueChanged<Itinerary>? onItineraryChanged;
+
+  /// Reports the backend id after a successful save (auto-save or edit save).
+  final ValueChanged<String>? onTripSaved;
+
+  /// Title to save under; defaults to "<city> Adventure (<date>)".
+  final String? tripTitle;
+
   const ItineraryScreen({
     super.key,
     this.itinerary,
@@ -22,6 +41,10 @@ class ItineraryScreen extends StatefulWidget {
     required this.onPlaceClick,
     this.isHistoryView = false,
     this.isEmbedded = false,
+    this.tripBackendId,
+    this.onItineraryChanged,
+    this.onTripSaved,
+    this.tripTitle,
   });
 
   @override
@@ -37,9 +60,20 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
   bool _hasAutoSaved = false;
   bool _showBackToTop = false;
 
+  // Editing state: _working is the local copy all edits apply to.
+  Itinerary? _working;
+  bool _isEditing = false;
+  bool _isDirty = false;
+  bool _isSavingEdits = false;
+  String? _backendId;
+
+  bool get _canEdit => widget.onItineraryChanged != null && _working != null;
+
   @override
   void initState() {
     super.initState();
+    _working = widget.itinerary;
+    _backendId = widget.tripBackendId;
     if (!widget.isHistoryView) {
       _saveTripAutomatically();
     } else {
@@ -55,15 +89,163 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant ItineraryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Adopt a new itinerary instance (e.g. a history trip was opened), but
+    // not the echo of our own edit coming back from the parent.
+    if (!identical(widget.itinerary, _working)) {
+      _working = widget.itinerary;
+      _isEditing = false;
+      _isDirty = false;
+    }
+    if (widget.tripBackendId != oldWidget.tripBackendId &&
+        widget.tripBackendId != null) {
+      _backendId = widget.tripBackendId;
+    }
+  }
+
+  @override
+  void deactivate() {
+    // Screen is being torn down (tab switch recreates it) — don't lose edits.
+    if (_isDirty && !_isSavingEdits) {
+      _persistEdits(showFeedback: false);
+    }
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
   }
 
+  // ────────────────────────────── editing ──────────────────────────────
+
+  void _applyEdit(Itinerary updated) {
+    setState(() {
+      _working = updated;
+      _isDirty = true;
+    });
+    widget.onItineraryChanged?.call(updated);
+  }
+
+  /// Blocks edits to a day that is currently being walked as a live trip.
+  bool _canEditDay(int day) {
+    final sessionService = TripSessionService();
+    if (sessionService.hasActiveTrip && sessionService.session!.day == day) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Finish your live trip before editing this day'),
+          backgroundColor: AppColors.charcoal,
+        ),
+      );
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _toggleEditing() async {
+    if (!_isEditing) {
+      setState(() => _isEditing = true);
+      return;
+    }
+    setState(() => _isEditing = false);
+    await _persistEdits();
+  }
+
+  String get _saveTitle {
+    if (widget.tripTitle != null) return widget.tripTitle!;
+    final city = widget.preferences?.city ?? 'Egypt';
+    final date = DateTime.now().toString().split(' ')[0];
+    return '$city Adventure ($date)';
+  }
+
+  Future<void> _persistEdits({bool showFeedback = true}) async {
+    if (!_isDirty || _working == null || _isSavingEdits) return;
+
+    if (AuthService().currentUser == null) {
+      // Guests keep their in-memory edits; nothing to sync.
+      _isDirty = false;
+      return;
+    }
+
+    _isSavingEdits = true;
+    try {
+      await _preFetchAllPhotos();
+      final id = await _tripStorageService.updateTrip(
+        (_backendId?.isEmpty ?? true) ? null : _backendId,
+        _working!,
+        _saveTitle,
+        _photoCache,
+      );
+      if (id != null) {
+        _isDirty = false;
+        if (id.isNotEmpty) {
+          _backendId = id;
+          widget.onTripSaved?.call(id);
+        }
+        if (showFeedback && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Trip updated'),
+              backgroundColor: AppColors.success,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else if (showFeedback && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Trip not synced — will retry when you edit again'),
+            backgroundColor: AppColors.charcoal,
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ [ItineraryScreen] Error saving edits: $e');
+    } finally {
+      _isSavingEdits = false;
+    }
+  }
+
+  Future<void> _openAddStopSheet(int day) async {
+    if (!_canEditDay(day)) return;
+
+    // Anchor nearby search at the day's last stop, falling back to the
+    // trip's first stop anywhere.
+    Poi? anchor;
+    final dayEvents = _working!.days[day];
+    if (dayEvents != null && dayEvents.isNotEmpty) {
+      anchor = dayEvents.last.poi;
+    } else {
+      for (final d in _working!.sortedDays) {
+        final events = _working!.days[d];
+        if (events != null && events.isNotEmpty) {
+          anchor = events.first.poi;
+          break;
+        }
+      }
+    }
+
+    final poi = await showModalBottomSheet<Poi>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AddStopSheet(
+        anchorLat: anchor?.lat,
+        anchorLon: anchor?.lon,
+      ),
+    );
+
+    if (poi != null && mounted) {
+      _applyEdit(ItineraryEditor.addStop(_working!, day, poi));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Show placeholder if no data
-    if (widget.itinerary == null || widget.preferences == null) {
+    if (_working == null || widget.preferences == null) {
       return Scaffold(
         backgroundColor: AppColors.cream,
         body: Center(
@@ -89,8 +271,10 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
       );
     }
 
-    final totalDays = widget.itinerary!.totalDays;
+    final itinerary = _working!;
+    final totalDays = itinerary.totalDays;
     final budgetTier = widget.preferences!.budgetTier ?? 'moderate';
+    final allDays = List<int>.generate(totalDays, (i) => i + 1);
 
     return Scaffold(
       backgroundColor: AppColors.cream,
@@ -107,7 +291,7 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
                     end: Alignment.bottomRight,
                     colors: [
                       AppColors.primary,
-                      Color(0xFF2A6678),
+                      AppColors.primaryLight,
                     ],
                   ),
                   boxShadow: [
@@ -259,70 +443,91 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
                   // 1. Optional Summary Card (only if embedded)
                   if (widget.isEmbedded) {
                     if (currentIndex == 0) {
-                      return _TripSummaryCard(itinerary: widget.itinerary!);
+                      return _TripSummaryCard(itinerary: itinerary);
                     }
                     currentIndex--;
                   }
 
                   // ── Interest-search result card (step 6 response) ──
-                  if (widget.itinerary!.interestSearch != null) {
+                  int dayNumber;
+                  bool openByDefault;
+                  if (itinerary.interestSearch != null) {
                     if (currentIndex == 0) {
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 20),
                         child: _InterestSearchCard(
-                          data: widget.itinerary!.interestSearch!,
+                          data: itinerary.interestSearch!,
                         ),
                       );
                     }
                     // Shift day index by 1 from the remaining index
-                    final dayNumber = currentIndex; // currentIndex 1 → day 1, etc.
-                    final dayEvents = widget.itinerary!.days[dayNumber] ?? [];
-                    if (dayEvents.isEmpty) return const SizedBox.shrink();
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
-                      child: DayCard(
-                        day: dayNumber,
-                        events: dayEvents,
-                        isOpen: currentIndex == 1,
-                        onPlaceClick: () => widget.onPlaceClick(dayNumber),
-                        photoService: _photoService,
-                        photoCache: _photoCache,
-                      ),
-                    );
+                    dayNumber = currentIndex; // currentIndex 1 → day 1, etc.
+                    openByDefault = currentIndex == 1;
+                  } else {
+                    dayNumber = currentIndex + 1;
+                    openByDefault = currentIndex == 0;
                   }
 
-                  // ── Normal day cards (no interest-search) ──
-                  final dayNumber = currentIndex + 1;
-                  final dayEvents = widget.itinerary!.days[dayNumber] ?? [];
+                  final dayEvents = itinerary.days[dayNumber] ?? [];
 
-                  if (dayEvents.isEmpty) {
+                  // Empty days are hidden in view mode, but shown in edit
+                  // mode so stops can be added or moved into them.
+                  if (dayEvents.isEmpty && !_isEditing) {
                     return const SizedBox.shrink();
                   }
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 20),
                     child: DayCard(
+                      // Force a rebuild of the card's local expansion state
+                      // when toggling edit mode.
+                      key: ValueKey('day_${dayNumber}_$_isEditing'),
                       day: dayNumber,
                       events: dayEvents,
-                      isOpen: currentIndex == 0,
+                      isOpen: openByDefault || _isEditing,
                       onPlaceClick: () => widget.onPlaceClick(dayNumber),
                       photoService: _photoService,
                       photoCache: _photoCache,
+                      isEditing: _isEditing,
+                      allDays: allDays,
+                      onRemove: (index) {
+                        if (_canEditDay(dayNumber)) {
+                          _applyEdit(ItineraryEditor.removeStop(
+                              _working!, dayNumber, index));
+                        }
+                      },
+                      onReorder: (oldIndex, newIndex) {
+                        if (_canEditDay(dayNumber)) {
+                          _applyEdit(ItineraryEditor.reorderWithinDay(
+                              _working!, dayNumber, oldIndex, newIndex));
+                        }
+                      },
+                      onMoveToDay: (index, targetDay) {
+                        if (_canEditDay(dayNumber) && _canEditDay(targetDay)) {
+                          _applyEdit(ItineraryEditor.moveBetweenDays(
+                              _working!, dayNumber, index, targetDay));
+                        }
+                      },
+                      onAddStop: () => _openAddStopSheet(dayNumber),
                     ),
                   );
                 },
                 childCount: totalDays +
-                    (widget.itinerary!.interestSearch != null ? 1 : 0) +
+                    (itinerary.interestSearch != null ? 1 : 0) +
                     (widget.isEmbedded ? 1 : 0),
               ),
             ),
           ),
         ],
       ),
-      floatingActionButton: _showBackToTop
-          ? Padding(
-              padding: const EdgeInsets.only(bottom: 70),
-              child: FloatingActionButton(
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 70),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_showBackToTop)
+              FloatingActionButton(
+                heroTag: 'itinerary_back_to_top',
                 onPressed: () {
                   _scrollController.animateTo(
                     0,
@@ -334,19 +539,40 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
                 mini: true,
                 child: const Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white),
               ),
-            )
-          : null,
+            if (_canEdit) ...[
+              const SizedBox(height: 12),
+              FloatingActionButton.extended(
+                heroTag: 'itinerary_edit_toggle',
+                onPressed: _toggleEditing,
+                backgroundColor:
+                    _isEditing ? AppColors.success : AppColors.accent,
+                icon: Icon(
+                  _isEditing ? Icons.check_rounded : Icons.edit_rounded,
+                  color: Colors.white,
+                ),
+                label: Text(
+                  _isEditing ? 'Done' : 'Edit',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
   /// Pre-fetch photos for all POIs in the itinerary to ensure they are available for saving
   Future<void> _preFetchAllPhotos() async {
-    if (widget.itinerary == null) return;
-    
+    if (_working == null) return;
+
     print('📸 [ItineraryScreen] Pre-fetching photos for all POIs...');
-    
+
     final allPois = <Map<String, dynamic>>[];
-    widget.itinerary!.days.forEach((_, events) {
+    _working!.days.forEach((_, events) {
       for (var event in events) {
         allPois.add({
           'name': event.poi.name,
@@ -379,12 +605,19 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
   }
 
   Future<void> _saveTripAutomatically() async {
-    if (_hasAutoSaved || widget.itinerary == null || widget.preferences == null) return;
+    if (_hasAutoSaved || _working == null || widget.preferences == null) return;
+
+    // Already saved in a previous mount of this screen (tab switches recreate
+    // it) — without this check every Trip-tab visit POSTed a duplicate trip.
+    if (widget.tripBackendId != null) {
+      _hasAutoSaved = true;
+      return;
+    }
 
     // Check if user is guest - don't autosave for guests (they can't anyway)
     final authService = AuthService();
     final currentUser = authService.currentUser;
-    
+
     if (currentUser == null) {
       print('ℹ️ [ItineraryScreen] Saving skipped: User is a Guest.');
       return;
@@ -400,25 +633,24 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
       // 1. Pre-fetch all photos first to ensure we have URLs for the database
       await _preFetchAllPhotos();
 
-      // 2. Generate a professional default title
-      final String city = widget.preferences!.city ?? 'Cairo';
-      final String date = DateTime.now().toString().split(' ')[0];
-      final String title = '$city Adventure ($date)';
+      // 2. Populate metadata from preferences
+      _working!.interests.clear();
+      _working!.interests.addAll(widget.preferences!.interests);
 
-      // 3. Populate metadata from preferences
-      widget.itinerary!.interests.clear();
-      widget.itinerary!.interests.addAll(widget.preferences!.interests);
-
-      // 4. Perform save with the populated photo cache
-      final success = await _tripStorageService.saveTrip(
-        widget.itinerary!, 
-        title, 
-        _photoCache
+      // 3. Perform save with the populated photo cache
+      final id = await _tripStorageService.saveTrip(
+        _working!,
+        _saveTitle,
+        _photoCache,
       );
 
-      if (success) {
+      if (id != null) {
         _hasAutoSaved = true;
-        print('✅ Trip autosaved successfully: $title');
+        if (id.isNotEmpty) {
+          _backendId = id;
+          widget.onTripSaved?.call(id);
+        }
+        print('✅ Trip autosaved successfully: $_saveTitle');
       }
     } catch (e) {
       print('❌ Error in autosave: $e');
@@ -453,6 +685,14 @@ class DayCard extends StatefulWidget {
   final GooglePlacesPhotoService photoService;
   final Map<String, String?> photoCache;
 
+  // Edit mode (all no-ops when isEditing is false)
+  final bool isEditing;
+  final List<int> allDays;
+  final void Function(int index)? onRemove;
+  final void Function(int oldIndex, int newIndex)? onReorder;
+  final void Function(int index, int targetDay)? onMoveToDay;
+  final VoidCallback? onAddStop;
+
   const DayCard({
     super.key,
     required this.day,
@@ -461,6 +701,12 @@ class DayCard extends StatefulWidget {
     required this.onPlaceClick,
     required this.photoService,
     required this.photoCache,
+    this.isEditing = false,
+    this.allDays = const [],
+    this.onRemove,
+    this.onReorder,
+    this.onMoveToDay,
+    this.onAddStop,
   });
 
   @override
@@ -547,7 +793,7 @@ class _DayCardState extends State<DayCard> with AutomaticKeepAliveClientMixin {
                           end: Alignment.bottomRight,
                           colors: [
                             AppColors.primary,
-                            Color(0xFF2A6678),
+                            AppColors.primaryLight,
                           ],
                         ),
                         borderRadius: BorderRadius.circular(16),
@@ -664,21 +910,7 @@ class _DayCardState extends State<DayCard> with AutomaticKeepAliveClientMixin {
             firstChild: const SizedBox.shrink(),
             secondChild: Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-              child: Column(
-                children: widget.events.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final event = entry.value;
-                  final isLast = index == widget.events.length - 1;
-                  
-                  return _ActivityItem(
-                    event: event,
-                    onClick: widget.onPlaceClick,
-                    photoService: widget.photoService,
-                    photoCache: widget.photoCache,
-                    isLast: isLast,
-                  );
-                }).toList(),
-              ),
+              child: widget.isEditing ? _buildEditBody() : _buildViewBody(),
             ),
             crossFadeState: _expanded
                 ? CrossFadeState.showSecond
@@ -687,6 +919,166 @@ class _DayCardState extends State<DayCard> with AutomaticKeepAliveClientMixin {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildViewBody() {
+    return Column(
+      children: widget.events.asMap().entries.map((entry) {
+        final index = entry.key;
+        final event = entry.value;
+        final isLast = index == widget.events.length - 1;
+
+        return _ActivityItem(
+          event: event,
+          onClick: widget.onPlaceClick,
+          photoService: widget.photoService,
+          photoCache: widget.photoCache,
+          isLast: isLast,
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildEditBody() {
+    final overloaded = ItineraryEditor.isDayOverloaded(widget.events);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (overloaded)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.schedule_rounded, size: 16, color: AppColors.accent),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'This day is overloaded — consider moving a stop to another day',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.accent,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (widget.events.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'No stops planned for this day yet.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.charcoal.withValues(alpha: 0.5),
+              ),
+            ),
+          )
+        else
+          ReorderableListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            buildDefaultDragHandles: false,
+            itemCount: widget.events.length,
+            onReorder: (oldIndex, newIndex) {
+              if (newIndex > oldIndex) newIndex--;
+              widget.onReorder?.call(oldIndex, newIndex);
+            },
+            itemBuilder: (context, index) {
+              final event = widget.events[index];
+              return Row(
+                key: ValueKey('stop_${event.poi.id}_$index'),
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  ReorderableDragStartListener(
+                    index: index,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Icon(
+                        Icons.drag_indicator_rounded,
+                        color: AppColors.charcoal.withValues(alpha: 0.35),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: _ActivityItem(
+                      event: event,
+                      photoService: widget.photoService,
+                      photoCache: widget.photoCache,
+                      isLast: index == widget.events.length - 1,
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    icon: Icon(
+                      Icons.more_vert_rounded,
+                      color: AppColors.charcoal.withValues(alpha: 0.5),
+                      size: 20,
+                    ),
+                    onSelected: (value) {
+                      if (value == 'remove') {
+                        widget.onRemove?.call(index);
+                      } else if (value.startsWith('move_')) {
+                        final targetDay = int.parse(value.substring(5));
+                        widget.onMoveToDay?.call(index, targetDay);
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'remove',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete_outline_rounded,
+                                size: 18, color: Colors.redAccent),
+                            SizedBox(width: 8),
+                            Text('Remove'),
+                          ],
+                        ),
+                      ),
+                      ...widget.allDays
+                          .where((d) => d != widget.day)
+                          .map((d) => PopupMenuItem(
+                                value: 'move_$d',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.low_priority_rounded,
+                                        size: 18, color: AppColors.primary),
+                                    const SizedBox(width: 8),
+                                    Text('Move to Day $d'),
+                                  ],
+                                ),
+                              )),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: widget.onAddStop,
+          icon: const Icon(Icons.add_location_alt_rounded, size: 18),
+          label: const Text('Add a stop'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.primary,
+            side: BorderSide(
+              color: AppColors.primary.withValues(alpha: 0.4),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -750,16 +1142,7 @@ class _ActivityItemState extends State<_ActivityItem> {
     }
   }
 
-  IconData _getCategoryIcon(String category) {
-    final cat = category.toLowerCase();
-    if (cat.contains('history') || cat.contains('museum')) return Icons.account_balance_rounded;
-    if (cat.contains('food')) return Icons.restaurant_rounded;
-    if (cat.contains('nature')) return Icons.park_rounded;
-    if (cat.contains('shopping')) return Icons.shopping_bag_rounded;
-    if (cat.contains('entertainment')) return Icons.theater_comedy_rounded;
-    if (cat.contains('religious')) return Icons.mosque_rounded;
-    return Icons.place_rounded;
-  }
+  IconData _getCategoryIcon(String category) => categoryStyleFor(category).icon;
 
   @override
   Widget build(BuildContext context) {
@@ -1050,7 +1433,7 @@ class _InterestSearchCard extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [
             AppColors.primary,
-            Color(0xFF2A6678),
+            AppColors.primaryLight,
           ],
         ),
         borderRadius: BorderRadius.circular(20),

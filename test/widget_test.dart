@@ -1,21 +1,62 @@
-// This is a basic Flutter widget test for Nile Quest app.
+// Widget tests for the Nile Quest welcome screen.
+//
+// The full app (NileQuestApp) boots into a splash screen and runs an async
+// Firebase auth check, which cannot run in the widget test environment.
+// Instead we pump WelcomeScreen directly — it has no Firebase dependency.
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:nile_quest/main.dart';
+import 'package:nile_quest/screens/welcome_screen.dart';
+import 'package:nile_quest/theme.dart';
 
 void main() {
-  testWidgets('Nile Quest app smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const NileQuestApp());
+  Widget buildWelcomeScreen({
+    VoidCallback? onLogin,
+    VoidCallback? onGuest,
+  }) {
+    return MaterialApp(
+      theme: AppTheme.theme,
+      home: WelcomeScreen(
+        onLogin: onLogin ?? () {},
+        onGuest: onGuest ?? () {},
+      ),
+    );
+  }
 
-    // Verify that the Welcome screen loads with "Nile Quest" text
+  testWidgets('Welcome screen shows title and action buttons',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(buildWelcomeScreen());
+    // Let the entrance animations finish.
+    await tester.pumpAndSettle();
+
     expect(find.text('Nile Quest'), findsOneWidget);
-    
-    // Verify the Log In button exists
+    expect(find.text('Discover the Magic of Egypt'), findsOneWidget);
     expect(find.text('Log In'), findsOneWidget);
-    
-    // Verify the Continue as Guest button exists
     expect(find.text('Continue as Guest'), findsOneWidget);
+  });
+
+  testWidgets('Log In button invokes onLogin callback',
+      (WidgetTester tester) async {
+    var loginTapped = false;
+    await tester.pumpWidget(
+      buildWelcomeScreen(onLogin: () => loginTapped = true),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Log In'));
+    expect(loginTapped, isTrue);
+  });
+
+  testWidgets('Continue as Guest button invokes onGuest callback',
+      (WidgetTester tester) async {
+    var guestTapped = false;
+    await tester.pumpWidget(
+      buildWelcomeScreen(onGuest: () => guestTapped = true),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Continue as Guest'));
+    expect(guestTapped, isTrue);
   });
 }
