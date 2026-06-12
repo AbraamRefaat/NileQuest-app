@@ -1312,7 +1312,9 @@ class _ActivityItemState extends State<_ActivityItem> {
                               ],
                             ),
                             const SizedBox(height: 10),
-                            Row(
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
                               children: [
                                 Container(
                                   padding: const EdgeInsets.symmetric(
@@ -1343,7 +1345,6 @@ class _ActivityItemState extends State<_ActivityItem> {
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 6),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 8,

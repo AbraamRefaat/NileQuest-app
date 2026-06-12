@@ -3,9 +3,8 @@ import '../theme.dart';
 import '../models/itinerary.dart';
 import '../models/user_preferences.dart';
 import 'itinerary_screen.dart';
-import 'my_trips_screen.dart';
 
-class TripsScreen extends StatefulWidget {
+class TripsScreen extends StatelessWidget {
   final Itinerary? currentItinerary;
   final UserPreferences? currentPreferences;
   final bool isHistoryView;
@@ -14,6 +13,10 @@ class TripsScreen extends StatefulWidget {
   final Function(Itinerary, String?) OnViewTrip;
   final ValueChanged<Itinerary>? onItineraryChanged;
   final ValueChanged<String>? onTripSaved;
+
+  /// Called when the user finishes / dismisses the current trip so it moves
+  /// to history and the Trip tab shows the empty state again.
+  final VoidCallback? onTripFinished;
 
   const TripsScreen({
     super.key,
@@ -25,31 +28,8 @@ class TripsScreen extends StatefulWidget {
     required this.OnViewTrip,
     this.onItineraryChanged,
     this.onTripSaved,
+    this.onTripFinished,
   });
-
-  @override
-  State<TripsScreen> createState() => _TripsScreenState();
-}
-
-class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    // Start on History tab if it's history view, otherwise Current Trip
-    _tabController = TabController(
-      length: 2, 
-      vsync: this, 
-      initialIndex: (widget.isHistoryView || widget.currentItinerary == null) ? 1 : 0
-    );
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,56 +41,32 @@ class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStat
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
-              child: Text(
-                'My Trips',
-                style: Theme.of(context).textTheme.displayMedium,
-              ),
-            ),
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(15),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'My Trips',
+                    style: Theme.of(context).textTheme.displayMedium,
                   ),
-                ],
-              ),
-              child: TabBar(
-                controller: _tabController,
-                indicator: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: AppColors.primary,
-                ),
-                indicatorSize: TabBarIndicatorSize.tab,
-                labelColor: Colors.white,
-                unselectedLabelColor: AppColors.charcoal.withValues(alpha: 0.6),
-                labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                tabs: const [
-                  Tab(text: 'Current Trip'),
-                  Tab(text: 'History'),
+                  // "Finish Trip" button — only shown when a current trip exists
+                  if (currentItinerary != null && onTripFinished != null)
+                    TextButton.icon(
+                      onPressed: () => _confirmFinishTrip(context),
+                      icon: const Icon(Icons.done_all_rounded, size: 18),
+                      label: const Text('Finish Trip'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.accent,
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
             Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                   _buildCurrentTripTab(),
-                  MyTripsScreen(
-                    onBack: () {}, // Not used in tab view
-                    OnViewTrip: (itinerary, backendId) {
-                      widget.OnViewTrip(itinerary, backendId);
-                      // Switch to current trip tab to show the selected history trip
-                      _tabController.animateTo(0);
-                    },
-                    isEmbedded: true,
-                  ),
-                ],
-              ),
+              child: _buildCurrentTripTab(context),
             ),
           ],
         ),
@@ -118,8 +74,45 @@ class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStat
     );
   }
 
-  Widget _buildCurrentTripTab() {
-    if (widget.currentItinerary == null) {
+  void _confirmFinishTrip(BuildContext context) {
+    showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Finish this trip?'),
+        content: const Text(
+          'The trip will be moved to your Trip history in your Profile. '
+          'You can always view it there.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx, true);
+              onTripFinished?.call();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Trip moved to history ✓'),
+                  backgroundColor: AppColors.primary,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Finish'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCurrentTripTab(BuildContext context) {
+    if (currentItinerary == null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(40),
@@ -164,14 +157,14 @@ class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStat
     }
 
     return ItineraryScreen(
-      itinerary: widget.currentItinerary,
-      preferences: widget.currentPreferences,
-      onPlaceClick: widget.onPlaceClick,
-      isHistoryView: widget.isHistoryView,
+      itinerary: currentItinerary,
+      preferences: currentPreferences,
+      onPlaceClick: onPlaceClick,
+      isHistoryView: isHistoryView,
       isEmbedded: true,
-      tripBackendId: widget.tripBackendId,
-      onItineraryChanged: widget.onItineraryChanged,
-      onTripSaved: widget.onTripSaved,
+      tripBackendId: tripBackendId,
+      onItineraryChanged: onItineraryChanged,
+      onTripSaved: onTripSaved,
     );
   }
 }

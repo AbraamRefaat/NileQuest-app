@@ -185,6 +185,16 @@ class _AppNavigatorState extends State<AppNavigator> {
     });
   }
 
+  /// Clear the current trip from the Trip tab so it only lives in history.
+  void _clearCurrentTrip() {
+    setState(() {
+      _generatedItinerary = null;
+      _currentTripBackendId = null;
+      _userPreferences = null;
+      _isHistoryView = false;
+    });
+  }
+
   void _selectDay(int dayIndex) {
     setState(() {
       _selectedDayIndex = dayIndex;
@@ -351,6 +361,7 @@ class _AppNavigatorState extends State<AppNavigator> {
             _selectDay(dayIndex);
             _navigateToScreen(AppScreen.placeDetail);
           },
+          onTripFinished: _clearCurrentTrip,
           OnViewTrip: (itinerary, backendId) {
             _isHistoryView = true;
             _currentTripBackendId = backendId;
@@ -371,6 +382,7 @@ class _AppNavigatorState extends State<AppNavigator> {
         return EnhancedMapScreenV2Functional(
           itinerary: _generatedItinerary,
           selectedDay: _selectedDayIndex,
+          onTripFinished: _clearCurrentTrip,
         );
       case AppScreen.placeDetail:
         return PlaceDetailScreen(

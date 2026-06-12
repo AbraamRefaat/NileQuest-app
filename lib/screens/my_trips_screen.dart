@@ -114,7 +114,7 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
           ? null 
           : AppBar(
               title: const Text(
-                'My Trip History',
+                'Trip history',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
               ),
               backgroundColor: Colors.transparent,

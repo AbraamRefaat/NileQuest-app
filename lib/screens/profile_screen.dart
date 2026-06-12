@@ -7,6 +7,7 @@ import '../services/gamification_service.dart' as gam;
 import '../models/user.dart';
 import '../widgets/gamification/level_progress_bar.dart';
 import '../widgets/gamification/badges_grid.dart';
+import 'my_trips_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final VoidCallback onSignOut;
@@ -426,6 +427,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                     const SizedBox(height: 32),
 
+                    // Trip History Section
+                    Text(
+                      'Trip history',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    _buildTripHistoryCard(),
+
+                    const SizedBox(height: 32),
+
                     // Account Info
                     Text(
                       'Account Information',
@@ -533,6 +548,85 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTripHistoryCard() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.secondary.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => MyTripsScreen(
+                  onBack: () => Navigator.pop(context),
+                  OnViewTrip: (itinerary, backendId) {},
+                  isEmbedded: false,
+                ),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.history_rounded,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Trip history',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.charcoal,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'View your saved and past itineraries',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: AppColors.secondary,
+                  size: 16,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

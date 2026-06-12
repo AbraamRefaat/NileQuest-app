@@ -45,10 +45,15 @@ class EnhancedMapScreenV2Functional extends StatefulWidget {
   final Itinerary? itinerary;
   final int? selectedDay;
 
+  /// Called when the live trip session ends so the parent can clear the
+  /// current trip and move it to history.
+  final VoidCallback? onTripFinished;
+
   const EnhancedMapScreenV2Functional({
     super.key,
     this.itinerary,
     this.selectedDay,
+    this.onTripFinished,
   });
 
   @override
@@ -2080,32 +2085,34 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     );
   }
 
-  Future<void> _endTrip() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('End your trip?'),
-        content: const Text(
-            'We\'ll wrap up your day and show you your trip recap! 🎁'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Keep going'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
+  Future<void> _endTrip({bool skipConfirm = false}) async {
+    if (!skipConfirm) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('End your trip?'),
+          content: const Text(
+              'We\'ll wrap up your day and show you your trip recap! 🎁'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Keep going'),
             ),
-            child: const Text('End & see Wrapped'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('End & see Wrapped'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
 
     final finished = await _tripService.endTrip();
     if (finished == null || !mounted) return;
@@ -2130,6 +2137,9 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     if (mounted) {
       await showTripFeedbackSheet(context, finished);
     }
+
+    // Move the trip to history (clear from current trip tab)
+    widget.onTripFinished?.call();
   }
 
   Future<void> _openStopCamera(int stopIndex) async {
@@ -2195,6 +2205,44 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
         stop: stop,
         tripSessionId: session.id,
       );
+    }
+
+    // If ALL stops in the session are completed, auto-finish the trip
+    if (session != null &&
+        session.stops.every((s) => s.status == StopStatus.completed)) {
+      // Small delay so the user sees the last achievement before the dialog
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (mounted) {
+        final autoEnd = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20)),
+            title: const Text('🎉 All stops completed!'),
+            content: const Text(
+              'You\'ve visited every place and captured all your photos! '
+              'Ready to end the trip and see your Wrapped?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Keep exploring'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('End & see Wrapped'),
+              ),
+            ],
+          ),
+        );
+        if (autoEnd == true) {
+          await _endTrip(skipConfirm: true);
+        }
+      }
     }
   }
 
