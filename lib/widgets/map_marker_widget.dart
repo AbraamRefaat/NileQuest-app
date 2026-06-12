@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../constants/categories.dart';
 import '../theme.dart';
 
 class MapMarkerWidget extends StatelessWidget {
@@ -88,51 +89,9 @@ class MapMarkerWidget extends StatelessWidget {
     );
   }
 
-  Color _getCategoryColor(String category) {
-    switch (category) {
-      case 'Historical':
-        return const Color(0xFFE67E22); // Orange
-      case 'Museum':
-        return const Color(0xFF9B59B6); // Purple
-      case 'Religious':
-        return const Color(0xFF3498DB); // Blue
-      case 'Natural':
-        return const Color(0xFF27AE60); // Green
-      case 'Shopping':
-        return const Color(0xFFF39C12); // Yellow-Orange
-      case 'Beach Resort':
-        return const Color(0xFF1ABC9C); // Teal
-      case 'Art & Culture':
-        return const Color(0xFFE74C3C); // Red
-      case 'Food & Dining':
-        return const Color(0xFFF1C40F); // Yellow
-      default:
-        return AppColors.primary;
-    }
-  }
+  Color _getCategoryColor(String category) => categoryStyleFor(category).color;
 
-  IconData _getCategoryIcon(String category) {
-    switch (category) {
-      case 'Historical':
-        return Icons.account_balance_rounded;
-      case 'Museum':
-        return Icons.museum_rounded;
-      case 'Religious':
-        return Icons.mosque_rounded;
-      case 'Natural':
-        return Icons.landscape_rounded;
-      case 'Shopping':
-        return Icons.shopping_bag_rounded;
-      case 'Beach Resort':
-        return Icons.beach_access_rounded;
-      case 'Art & Culture':
-        return Icons.palette_rounded;
-      case 'Food & Dining':
-        return Icons.restaurant_rounded;
-      default:
-        return Icons.place_rounded;
-    }
-  }
+  IconData _getCategoryIcon(String category) => categoryStyleFor(category).icon;
 }
 
 class _PinPointerPainter extends CustomPainter {

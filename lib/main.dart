@@ -14,7 +14,6 @@ import 'screens/home_screen.dart';
 import 'screens/preference_setup_screen.dart';
 import 'screens/trip_generation_screen.dart';
 import 'screens/loading_screen.dart';
-import 'screens/itinerary_screen.dart';
 import 'screens/enhanced_map_screen_v2_functional.dart';
 import 'screens/place_detail_screen.dart';
 import 'screens/profile_screen.dart';
@@ -27,6 +26,7 @@ import 'services/auth_service.dart';
 import 'services/guest_mode_service.dart';
 import 'services/onboarding_service.dart';
 import 'services/server_warmer.dart';
+import 'services/feedback_service.dart';
 
 void main() async {
   WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
@@ -52,6 +52,9 @@ void main() async {
 
   // Start server warmer to prevent cold starts
   ServerWarmer.startWarming();
+
+  // Deliver any feedback that was queued offline (fire-and-forget)
+  FeedbackService().flushQueue();
 
   FlutterNativeSplash.remove();
   runApp(const NileQuestApp());
@@ -99,6 +102,10 @@ class _AppNavigatorState extends State<AppNavigator> {
   BottomNavTab _activeTab = BottomNavTab.home;
   UserPreferences? _userPreferences;
   Itinerary? _generatedItinerary;
+  // Backend id of the saved copy of the current trip; null until the first
+  // save succeeds. Prevents duplicate auto-saves and lets edits update the
+  // same backend document instead of creating new ones.
+  String? _currentTripBackendId;
   int? _selectedDayIndex;
   bool _isHistoryView = false;
   int _preferenceInitialStep = 1;
@@ -310,6 +317,7 @@ class _AppNavigatorState extends State<AppNavigator> {
           preferences: _userPreferences!,
           onGenerate: (itinerary) {
             _isHistoryView = false;
+            _currentTripBackendId = null;
             _saveItinerary(itinerary);
             _navigateToScreen(AppScreen.loading);
           },
@@ -332,12 +340,20 @@ class _AppNavigatorState extends State<AppNavigator> {
           currentItinerary: _generatedItinerary,
           currentPreferences: _userPreferences,
           isHistoryView: _isHistoryView,
+          tripBackendId: _currentTripBackendId,
+          onTripSaved: (id) {
+            setState(() => _currentTripBackendId = id);
+          },
+          onItineraryChanged: (updated) {
+            setState(() => _generatedItinerary = updated);
+          },
           onPlaceClick: (dayIndex) {
             _selectDay(dayIndex);
             _navigateToScreen(AppScreen.placeDetail);
           },
-          OnViewTrip: (itinerary) {
+          OnViewTrip: (itinerary, backendId) {
             _isHistoryView = true;
+            _currentTripBackendId = backendId;
             _saveItinerary(itinerary);
             // Also need to set some dummy preferences so ItineraryScreen doesn't crash
             if (_userPreferences == null) {

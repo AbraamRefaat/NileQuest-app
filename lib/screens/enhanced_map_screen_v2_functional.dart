@@ -9,6 +9,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 import '../theme.dart';
+import '../constants/categories.dart';
 import '../models/tourist_attraction.dart';
 import '../models/itinerary.dart';
 import '../services/places_service.dart';
@@ -16,7 +17,17 @@ import '../services/itinerary_map_service.dart';
 import '../services/nearby_discoveries_service.dart';
 import '../services/audio_guide_service.dart';
 import '../services/google_places_photo_service.dart';
+import '../services/trip_session_service.dart';
+import '../services/vector_search_service.dart';
+import '../services/notification_service.dart';
+import '../services/gamification_service.dart' as gam;
+import '../models/trip_session.dart';
 import '../widgets/modern_map_panels.dart';
+import '../widgets/gamification/xp_snackbar.dart';
+import '../widgets/sheets/stop_feedback_sheet.dart';
+import '../widgets/sheets/trip_feedback_sheet.dart';
+import 'stop_photo_screen.dart';
+import 'trip_wrapped_screen.dart';
 
 enum MapStyleKind { outdoors, streets, satellite, dark, light }
 
@@ -82,6 +93,16 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
   bool _isItineraryMode = false;
   int? _currentDay;
 
+  // Trip session (live trip with photo stops)
+  final TripSessionService _tripService = TripSessionService();
+  final Map<String, int> _markerToStopIndex = {};
+
+  // Vector (AI semantic) search
+  final Map<String, VectorSearchResult> _markerToVectorResult = {};
+  List<VectorSearchResult> _vectorResults = [];
+  String? _aiRecommendation;
+  bool _isVectorSearching = false;
+
   // Style + view
   MapStyleKind _styleKind = MapStyleKind.outdoors;
   bool _is3D = false;
@@ -114,6 +135,18 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
       _currentDay = widget.selectedDay ?? 1;
       _loadItineraryPoints();
     }
+
+    // Trip session: restore any in-progress trip + wire arrival callback
+    _tripService.restore();
+    _tripService.addListener(_onTripChanged);
+    _tripService.onStopArrival = (stopIndex) {
+      if (mounted) _openStopCamera(stopIndex);
+    };
+    NotificationService().onNotificationTap = (payload) {
+      if (!mounted) return;
+      final idx = int.tryParse(payload);
+      if (idx != null) _openStopCamera(idx);
+    };
 
     // Listen to search changes (debounced)
     _searchTextController.addListener(() {
@@ -163,6 +196,8 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
 
   @override
   void dispose() {
+    _tripService.removeListener(_onTripChanged);
+    _tripService.onStopArrival = null;
     _searchDebounce?.cancel();
     _fabController.dispose();
     _searchController.dispose();
@@ -319,20 +354,49 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
 
     await _pointAnnotationManager?.deleteAll();
     _markerToAttraction.clear();
+    _markerToStopIndex.clear();
+
+    final dayColor = _itineraryService.getColorForDay(_currentDay ?? 1);
+    final session = _tripService.session;
 
     for (int i = 0; i < _itineraryPoints.length; i++) {
       final point = _itineraryPoints[i];
       final position = Point(coordinates: point.position);
 
+      // Color by trip progress: green = done, orange = arrived, day color = upcoming
+      Color markerColor = dayColor;
+      String label = '${i + 1}';
+      if (session != null && i < session.stops.length) {
+        switch (session.stops[i].status) {
+          case StopStatus.completed:
+            markerColor = const Color(0xFF27AE60);
+            label = '✓';
+            break;
+          case StopStatus.arrived:
+            markerColor = const Color(0xFFE67E22);
+            break;
+          case StopStatus.upcoming:
+            break;
+        }
+      }
+
       final options = PointAnnotationOptions(
         geometry: position,
         iconImage: 'marker-15',
-        iconSize: 2.0,
-        textField: '${i + 1}',
-        textSize: 12.0,
+        iconSize: 2.2,
+        iconColor: markerColor.toARGB32(),
+        textField: label,
+        textSize: 13.0,
+        textColor: Colors.white.toARGB32(),
+        textHaloColor: markerColor.toARGB32(),
+        textHaloWidth: 1.5,
+        symbolSortKey: 100.0 - i,
       );
 
-      await _pointAnnotationManager?.create(options);
+      final annotation = await _pointAnnotationManager?.create(options);
+      if (annotation != null) {
+        _markerToStopIndex[annotation.id] = i;
+      }
     }
   }
 
@@ -341,6 +405,8 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
 
     await _polylineAnnotationManager?.deleteAll();
 
+    final dayColor = _itineraryService.getColorForDay(_currentDay ?? 1);
+
     // Get route from directions service
     final route = await _itineraryService.getRouteForDay(
       widget.itinerary!,
@@ -348,13 +414,17 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     );
 
     if (route.isNotEmpty) {
-      final lineString = LineString(coordinates: route);
-      final options = PolylineAnnotationOptions(
-        geometry: lineString,
-        lineWidth: 4.0,
-      );
-
-      await _polylineAnnotationManager?.create(options);
+      // Soft outline under the main line for depth
+      await _polylineAnnotationManager?.create(PolylineAnnotationOptions(
+        geometry: LineString(coordinates: route),
+        lineWidth: 8.0,
+        lineColor: dayColor.withValues(alpha: 0.25).toARGB32(),
+      ));
+      await _polylineAnnotationManager?.create(PolylineAnnotationOptions(
+        geometry: LineString(coordinates: route),
+        lineWidth: 4.5,
+        lineColor: dayColor.toARGB32(),
+      ));
     }
   }
 
@@ -381,12 +451,20 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
           // ⚡ Quick Actions
           _buildQuickActionButtons(),
 
-          // 📊 Stats Card
-          if (!_isLoading && _isMapReady)
+          // 📊 Stats Card (hidden in itinerary mode — trip HUD takes its place)
+          if (!_isLoading && _isMapReady && !_isItineraryMode)
             _buildStatsCard(),
 
           // 🎯 Map Controls
           _buildMapControls(),
+
+          // 🚶 Trip HUD: Start Trip button / live progress
+          if (_isItineraryMode && _isMapReady)
+            _buildTripHud(),
+
+          // 🤖 AI recommendation banner (after vector search)
+          if (_aiRecommendation != null && _aiRecommendation!.isNotEmpty)
+            _buildAiBanner(),
 
           // 🌟 Loading
           if (_isLoading || !_isMapReady)
@@ -875,23 +953,61 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
                   controller: _searchTextController,
                   focusNode: _searchFocusNode,
                   decoration: const InputDecoration(
-                    hintText: 'Search attractions, places...',
+                    hintText: 'Try "quiet places with ancient art"...',
                     border: InputBorder.none,
                     isDense: true,
                   ),
                   style: const TextStyle(fontSize: 15),
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: _runVectorSearch,
                 ),
               ),
-              if (_searchQuery.isNotEmpty)
+              // 🤖 AI semantic search — queries the model's vector dataset
+              if (_isVectorSearching)
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(Color(0xFF8E44AD)),
+                  ),
+                )
+              else
+                GestureDetector(
+                  onTap: () => _runVectorSearch(_searchTextController.text),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF8E44AD), Color(0xFF5E2D79)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Text(
+                      '🤖 AI',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              if (_searchQuery.isNotEmpty) ...[
+                const SizedBox(width: 8),
                 GestureDetector(
                   onTap: () {
                     _searchTextController.clear();
+                    _clearVectorSearch();
                   },
                   child: Icon(
                     Icons.clear_rounded,
                     color: AppColors.primary.withValues(alpha: 0.7),
                   ),
                 ),
+              ],
             ],
           ),
         ),
@@ -1756,24 +1872,7 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     }
   }
 
-  Color _getCategoryColor(String category) {
-    switch (category) {
-      case 'Historical':
-        return const Color(0xFFE67E22);
-      case 'Museum':
-        return const Color(0xFF9B59B6);
-      case 'Religious':
-        return const Color(0xFF3498DB);
-      case 'Natural':
-        return const Color(0xFF27AE60);
-      case 'Shopping':
-        return const Color(0xFFF39C12);
-      case 'Beach Resort':
-        return const Color(0xFF1ABC9C);
-      default:
-        return AppColors.primary;
-    }
-  }
+  Color _getCategoryColor(String category) => categoryStyleFor(category).color;
 
   // Map Methods
   void _onMapCreated(MapboxMap mapboxMap) async {
@@ -1817,6 +1916,22 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
   }
 
   void _handleMarkerTap(PointAnnotation annotation) {
+    // Itinerary stop marker → stop sheet
+    final stopIndex = _markerToStopIndex[annotation.id];
+    if (stopIndex != null) {
+      HapticFeedback.selectionClick();
+      _showStopSheet(stopIndex);
+      return;
+    }
+
+    // Vector search result marker → simple result sheet
+    final vectorResult = _markerToVectorResult[annotation.id];
+    if (vectorResult != null) {
+      HapticFeedback.selectionClick();
+      _showVectorResultSheet(vectorResult);
+      return;
+    }
+
     final attraction = _markerToAttraction[annotation.id];
     if (attraction == null) return;
 
@@ -1938,5 +2053,722 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
+  }
+
+  // ═══════════════════ TRIP SESSION (live trip mode) ═══════════════════
+
+  void _onTripChanged() {
+    if (!mounted) return;
+    setState(() {});
+    // Refresh marker colors to reflect visit progress
+    if (_isItineraryMode) _addItineraryMarkers();
+  }
+
+  Future<void> _startTrip() async {
+    if (widget.itinerary == null || _currentDay == null) return;
+    HapticFeedback.mediumImpact();
+    await _tripService.startTrip(widget.itinerary!, _currentDay!);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text(
+            '🚀 Trip started! We\'ll ping you for photos at every stop.'),
+        backgroundColor: AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+    );
+  }
+
+  Future<void> _endTrip() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('End your trip?'),
+        content: const Text(
+            'We\'ll wrap up your day and show you your trip recap! 🎁'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep going'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('End & see Wrapped'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final finished = await _tripService.endTrip();
+    if (finished == null || !mounted) return;
+
+    // Count the day's walking toward distance badges.
+    final distanceResult =
+        await gam.GamificationService().addDistance(finished.distanceWalkedKm);
+
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+          builder: (_) => TripWrappedScreen(session: finished)),
+    );
+
+    if (mounted && (distanceResult.newBadges.isNotEmpty || distanceResult.levelUp)) {
+      showAchievement(context, distanceResult);
+    }
+
+    // Post-trip survey after Wrapped is closed (not inside it — Wrapped
+    // auto-advances pages, which is hostile to form input).
+    if (mounted) {
+      await showTripFeedbackSheet(context, finished);
+    }
+  }
+
+  Future<void> _openStopCamera(int stopIndex) async {
+    final session = _tripService.session;
+    if (session == null || stopIndex >= session.stops.length) return;
+    final stop = session.stops[stopIndex];
+
+    final photos = await Navigator.push<List<String>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StopPhotoScreen(
+          stop: stop,
+          stopNumber: stopIndex + 1,
+        ),
+      ),
+    );
+    if (photos != null && photos.isNotEmpty) {
+      await _tripService.addPhotosToStop(stopIndex, photos);
+      await _onStopPhotosAdded(stopIndex, photos.length);
+    }
+  }
+
+  /// Awards XP / badges after photos were added to a stop.
+  Future<void> _onStopPhotosAdded(int stopIndex, int photoCount) async {
+    final session = _tripService.session;
+    final stop = (session != null && stopIndex < session.stops.length)
+        ? session.stops[stopIndex]
+        : null;
+    if (stop == null || !mounted) return;
+
+    final service = gam.GamificationService();
+    final photoResult = await service.addPhotos(photoCount);
+
+    gam.AchievementResult? visitResult;
+    if (stop.status == StopStatus.completed) {
+      // Idempotent per POI — re-completing an already visited stop gives 0 XP.
+      visitResult = await service.visitAttraction(stop.poiId, stop.name);
+    }
+
+    if (!mounted) return;
+    if (visitResult != null && visitResult.xpGained > 0) {
+      showAchievement(context, visitResult);
+      // Photo XP rides along silently unless it carries badges or a level-up.
+      if (photoResult.newBadges.isNotEmpty || photoResult.levelUp) {
+        showAchievement(
+          context,
+          gam.AchievementResult(
+            xpGained: 0,
+            newBadges: photoResult.newBadges,
+            levelUp: photoResult.levelUp,
+            message: '',
+          ),
+        );
+      }
+    } else {
+      showAchievement(context, photoResult);
+    }
+
+    // Ask for a quick rating once the stop is done (dismissible).
+    if (stop.status == StopStatus.completed && session != null && mounted) {
+      await showStopFeedbackSheet(
+        context,
+        stop: stop,
+        tripSessionId: session.id,
+      );
+    }
+  }
+
+  /// Bottom sheet with stop details + check-in / photo actions
+  void _showStopSheet(int stopIndex) {
+    final point = stopIndex < _itineraryPoints.length
+        ? _itineraryPoints[stopIndex]
+        : null;
+    if (point == null) return;
+    final session = _tripService.session;
+    final stop = (session != null && stopIndex < session.stops.length)
+        ? session.stops[stopIndex]
+        : null;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _itineraryService.getColorForDay(_currentDay ?? 1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    stop?.status == StopStatus.completed
+                        ? '✓ Stop ${stopIndex + 1}'
+                        : 'Stop ${stopIndex + 1}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    point.name,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.charcoal,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.access_time_rounded,
+                    size: 16, color: AppColors.primary),
+                const SizedBox(width: 5),
+                Text(point.timeRange,
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 16),
+                const Icon(Icons.hourglass_bottom_rounded,
+                    size: 16, color: AppColors.primary),
+                const SizedBox(width: 5),
+                Text(point.formattedDuration,
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 16),
+                const Icon(Icons.payments_outlined,
+                    size: 16, color: AppColors.primary),
+                const SizedBox(width: 5),
+                Text(point.formattedCost,
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w600)),
+              ],
+            ),
+            if (point.event.reason.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('✨', style: TextStyle(fontSize: 14)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        point.event.reason,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          color: AppColors.charcoal.withValues(alpha: 0.85),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final uri = Uri.parse(
+                          'https://www.google.com/maps/dir/?api=1&destination=${point.position.lat},${point.position.lng}&travelmode=walking');
+                      if (await canLaunchUrl(uri)) {
+                        launchUrl(uri,
+                            mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    icon: const Icon(Icons.navigation_rounded, size: 18),
+                    label: const Text('Navigate'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
+                if (_tripService.hasActiveTrip && stop != null) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        if (stop.status == StopStatus.upcoming) {
+                          await _tripService.checkInAtStop(stopIndex);
+                        }
+                        _openStopCamera(stopIndex);
+                      },
+                      icon: Icon(
+                        stop.status == StopStatus.upcoming
+                            ? Icons.where_to_vote_rounded
+                            : Icons.photo_camera_rounded,
+                        size: 18,
+                      ),
+                      label: Text(stop.status == StopStatus.upcoming
+                          ? 'I\'m here!'
+                          : 'Photos (${stop.photoPaths.length}/3)'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE67E22),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Floating trip control: Start Trip button or live progress HUD
+  Widget _buildTripHud() {
+    final session = _tripService.session;
+    final active = _tripService.hasActiveTrip;
+
+    if (!active) {
+      // Start Trip button
+      return Positioned(
+        left: 16,
+        right: 16,
+        bottom: 100,
+        child: Center(
+          child: ElevatedButton.icon(
+            onPressed: _itineraryPoints.isEmpty ? null : _startTrip,
+            icon: const Icon(Icons.play_arrow_rounded, size: 24),
+            label: const Text('Start Trip'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE67E22),
+              foregroundColor: Colors.white,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+              textStyle:
+                  const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              elevation: 6,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30)),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final next = session!.nextStop;
+    final nextIndex = next != null ? session.stops.indexOf(next) : -1;
+    final distance = next != null ? _tripService.distanceToStop(next) : null;
+    final progress =
+        session.stops.isEmpty ? 0.0 : session.visitedCount / session.stops.length;
+
+    return Positioned(
+      left: 16,
+      right: 16,
+      bottom: 100,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 20,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE67E22).withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.directions_walk_rounded,
+                      color: Color(0xFFE67E22), size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        next != null
+                            ? 'Next: ${next.name}'
+                            : 'All stops visited! 🎉',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.charcoal,
+                        ),
+                      ),
+                      Text(
+                        next != null
+                            ? (distance != null
+                                ? '${distance < 1000 ? "${distance.round()} m" : "${(distance / 1000).toStringAsFixed(1)} km"} away • ${session.visitedCount}/${session.stops.length} visited'
+                                : '${session.visitedCount}/${session.stops.length} visited')
+                            : 'End the trip to see your Wrapped!',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.charcoal.withValues(alpha: 0.6),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (next != null)
+                  IconButton(
+                    tooltip: 'I\'m here — take photos',
+                    onPressed: () async {
+                      await _tripService.checkInAtStop(nextIndex);
+                      _openStopCamera(nextIndex);
+                    },
+                    icon: const Icon(Icons.photo_camera_rounded,
+                        color: Color(0xFFE67E22), size: 26),
+                  ),
+                IconButton(
+                  tooltip: 'End trip',
+                  onPressed: _endTrip,
+                  icon: const Icon(Icons.stop_circle_rounded,
+                      color: Color(0xFFE74C3C), size: 26),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 6,
+                backgroundColor: Colors.grey.withValues(alpha: 0.15),
+                valueColor:
+                    const AlwaysStoppedAnimation(Color(0xFFE67E22)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ═══════════════════ VECTOR (AI) SEARCH ═══════════════════
+
+  Future<void> _runVectorSearch(String query) async {
+    if (query.trim().isEmpty) return;
+    setState(() {
+      _isVectorSearching = true;
+      _aiRecommendation = null;
+    });
+    try {
+      final result = await VectorSearchService.search(query, topK: 10);
+      if (!mounted) return;
+      setState(() {
+        _vectorResults =
+            result.places.where((p) => p.hasCoordinates).toList();
+        _aiRecommendation = result.aiRecommendation;
+        _isVectorSearching = false;
+      });
+      await _addVectorResultMarkers();
+      _fitToVectorResults();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isVectorSearching = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('AI search unavailable right now — try again soon'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _addVectorResultMarkers() async {
+    if (_pointAnnotationManager == null) return;
+    await _pointAnnotationManager?.deleteAll();
+    _markerToAttraction.clear();
+    _markerToVectorResult.clear();
+
+    for (final r in _vectorResults) {
+      final annotation = await _pointAnnotationManager?.create(
+        PointAnnotationOptions(
+          geometry: Point(coordinates: Position(r.lon, r.lat)),
+          iconImage: 'marker-15',
+          iconSize: 2.2,
+          iconColor: const Color(0xFF8E44AD).toARGB32(), // AI purple
+          symbolSortKey: (r.score ?? 0) * 100,
+        ),
+      );
+      if (annotation != null) {
+        _markerToVectorResult[annotation.id] = r;
+      }
+    }
+  }
+
+  Future<void> _fitToVectorResults() async {
+    if (_mapboxMap == null || _vectorResults.isEmpty) return;
+    if (_vectorResults.length == 1) {
+      await _mapboxMap?.flyTo(
+        CameraOptions(
+          center: Point(
+              coordinates:
+                  Position(_vectorResults[0].lon, _vectorResults[0].lat)),
+          zoom: 13.0,
+        ),
+        MapAnimationOptions(duration: 1000),
+      );
+      return;
+    }
+    final points = _vectorResults
+        .map((r) => Point(coordinates: Position(r.lon, r.lat)))
+        .toList();
+    try {
+      final cam = await _mapboxMap!.cameraForCoordinates(
+        points,
+        MbxEdgeInsets(top: 220, left: 40, bottom: 200, right: 40),
+        null,
+        null,
+      );
+      await _mapboxMap?.flyTo(cam, MapAnimationOptions(duration: 1000));
+    } catch (_) {}
+  }
+
+  void _clearVectorSearch() {
+    setState(() {
+      _vectorResults = [];
+      _aiRecommendation = null;
+      _markerToVectorResult.clear();
+    });
+    if (_isItineraryMode) {
+      _addItineraryMarkers();
+    } else {
+      _addAttractionMarkers();
+    }
+  }
+
+  void _showVectorResultSheet(VectorSearchResult r) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8E44AD),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    '🤖 AI match',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    r.name,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.charcoal,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (r.category.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                r.category,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.charcoal.withValues(alpha: 0.6),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            if (r.description.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                r.description,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.45,
+                  color: AppColors.charcoal.withValues(alpha: 0.85),
+                ),
+              ),
+            ],
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final uri = Uri.parse(
+                      'https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lon}');
+                  if (await canLaunchUrl(uri)) {
+                    launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+                icon: const Icon(Icons.navigation_rounded, size: 18),
+                label: const Text('Navigate'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Banner showing the AI's text recommendation after a vector search
+  Widget _buildAiBanner() {
+    return Positioned(
+      top: 200,
+      left: 16,
+      right: 16,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF8E44AD), Color(0xFF5E2D79)],
+          ),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF8E44AD).withValues(alpha: 0.35),
+              blurRadius: 16,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('🤖', style: TextStyle(fontSize: 20)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _aiRecommendation!,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  height: 1.4,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            GestureDetector(
+              onTap: _clearVectorSearch,
+              child: const Padding(
+                padding: EdgeInsets.only(left: 8),
+                child: Icon(Icons.close_rounded,
+                    color: Colors.white70, size: 20),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

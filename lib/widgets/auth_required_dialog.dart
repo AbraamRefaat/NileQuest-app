@@ -95,7 +95,7 @@ class _AuthRequiredSheetState extends State<_AuthRequiredSheet>
               gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [AppColors.primary, Color(0xFF2A6678)],
+                colors: [AppColors.primary, AppColors.primaryLight],
               ),
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
@@ -210,7 +210,7 @@ class _AuthRequiredSheetState extends State<_AuthRequiredSheet>
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [AppColors.primary, Color(0xFF2A6678)],
+                        colors: [AppColors.primary, AppColors.primaryLight],
                       ),
                       borderRadius: BorderRadius.circular(14),
                       boxShadow: [

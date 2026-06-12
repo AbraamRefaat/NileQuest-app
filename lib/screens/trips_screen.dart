@@ -9,16 +9,22 @@ class TripsScreen extends StatefulWidget {
   final Itinerary? currentItinerary;
   final UserPreferences? currentPreferences;
   final bool isHistoryView;
+  final String? tripBackendId;
   final Function(int) onPlaceClick;
-  final Function(Itinerary) OnViewTrip;
+  final Function(Itinerary, String?) OnViewTrip;
+  final ValueChanged<Itinerary>? onItineraryChanged;
+  final ValueChanged<String>? onTripSaved;
 
   const TripsScreen({
     super.key,
     this.currentItinerary,
     this.currentPreferences,
     required this.isHistoryView,
+    this.tripBackendId,
     required this.onPlaceClick,
     required this.OnViewTrip,
+    this.onItineraryChanged,
+    this.onTripSaved,
   });
 
   @override
@@ -96,8 +102,8 @@ class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStat
                    _buildCurrentTripTab(),
                   MyTripsScreen(
                     onBack: () {}, // Not used in tab view
-                    OnViewTrip: (itinerary) {
-                      widget.OnViewTrip(itinerary);
+                    OnViewTrip: (itinerary, backendId) {
+                      widget.OnViewTrip(itinerary, backendId);
                       // Switch to current trip tab to show the selected history trip
                       _tabController.animateTo(0);
                     },
@@ -163,6 +169,9 @@ class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStat
       onPlaceClick: widget.onPlaceClick,
       isHistoryView: widget.isHistoryView,
       isEmbedded: true,
+      tripBackendId: widget.tripBackendId,
+      onItineraryChanged: widget.onItineraryChanged,
+      onTripSaved: widget.onTripSaved,
     );
   }
 }

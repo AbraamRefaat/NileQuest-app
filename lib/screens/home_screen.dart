@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
+import '../constants/popular_destinations.dart';
 import '../models/event.dart';
 import '../services/tazkarti_service.dart';
 import '../widgets/location_chip.dart';
+import '../widgets/cards/event_card.dart';
+import '../widgets/cards/destination_card.dart';
+import '../widgets/common/category_chips.dart';
 import 'all_events_screen.dart';
 import 'who_am_i_screen.dart';
 
@@ -25,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final TazkartiService _tazkartiService = TazkartiService();
   List<Event> _upcomingEvents = [];
   bool _isLoadingEvents = true;
+  String _selectedEventCategory = 'All';
   late AnimationController _pulseController;
   late Animation<double> _pulseAnim;
 
@@ -61,6 +66,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       });
     }
   }
+
+  List<String> get _eventCategories =>
+      ['All', ...{for (final e in _upcomingEvents) e.category ?? 'Other'}];
+
+  List<Event> get _filteredEvents => _selectedEventCategory == 'All'
+      ? _upcomingEvents
+      : _upcomingEvents
+          .where((e) => (e.category ?? 'Other') == _selectedEventCategory)
+          .toList();
 
   Future<void> _openEventUrl(String url) async {
     try {
@@ -139,8 +153,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                   ? AppColors.primary.withValues(alpha: 0.75)
                                   : AppColors.primary,
                               widget.isGuest
-                                  ? const Color(0xFF2A6678).withValues(alpha: 0.75)
-                                  : const Color(0xFF2A6678),
+                                  ? AppColors.primaryLight.withValues(alpha: 0.75)
+                                  : AppColors.primaryLight,
                             ],
                           ),
                           borderRadius: BorderRadius.circular(20),
@@ -355,10 +369,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  itemCount: _popularDestinations.length,
+                  itemCount: popularDestinations.length,
                   itemBuilder: (context, index) {
-                    final destination = _popularDestinations[index];
-                    return _buildDestinationCard(destination);
+                    final destination = popularDestinations[index];
+                    return DestinationCard(destination: destination);
                   },
                 ),
               ),
@@ -403,6 +417,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
               const SizedBox(height: 16),
 
+              // Category filter (hidden when all events share one category)
+              if (!_isLoadingEvents && _eventCategories.length > 2) ...[
+                CategoryChips(
+                  categories: _eventCategories,
+                  selected: _selectedEventCategory,
+                  onSelected: (category) =>
+                      setState(() => _selectedEventCategory = category),
+                ),
+                const SizedBox(height: 16),
+              ],
+
               // Upcoming Events List (limited to 4)
               _isLoadingEvents
                   ? const Padding(
@@ -413,12 +438,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                       ),
                     )
-                  : _upcomingEvents.isEmpty
+                  : _filteredEvents.isEmpty
                       ? Padding(
                           padding: const EdgeInsets.all(40),
                           child: Center(
                             child: Text(
-                              'No upcoming events available',
+                              _upcomingEvents.isEmpty
+                                  ? 'No upcoming events available'
+                                  : 'No events in this category',
                               style: TextStyle(
                                 color:
                                     AppColors.charcoal.withValues(alpha: 0.6),
@@ -430,11 +457,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           padding: const EdgeInsets.symmetric(horizontal: 24),
                           child: Column(
                             children: [
-                              ..._upcomingEvents.take(4).map((event) {
-                                return _buildEventCard(event);
+                              ..._filteredEvents.take(4).map((event) {
+                                return EventCard(
+                                  event: event,
+                                  onTap: () => _openEventUrl(event.eventUrl),
+                                );
                               }),
                               // "View more" footer pill if there are more than 4
-                              if (_upcomingEvents.length > 4)
+                              if (_filteredEvents.length > 4)
                                 TextButton(
                                   onPressed: () {
                                     Navigator.push(
@@ -448,7 +478,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Text(
-                                        'View ${_upcomingEvents.length - 4} more events',
+                                        'View ${_filteredEvents.length - 4} more events',
                                         style: TextStyle(
                                           color: AppColors.accent,
                                           fontWeight: FontWeight.w600,
@@ -529,7 +559,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         end: Alignment.bottomRight,
                         colors: [
                           AppColors.primary,
-                          Color(0xFF2A6678),
+                          AppColors.primaryLight,
                         ],
                       ),
                     ),
@@ -548,414 +578,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildDestinationCard(Map<String, dynamic> destination) {
-    return Container(
-      width: 220,
-      margin: const EdgeInsets.only(right: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Image Container
-          Stack(
-            children: [
-              Container(
-                height: 180,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      // Image
-                      destination['image'] != null
-                          ? Image.asset(
-                              destination['image'],
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        AppColors.primary
-                                            .withValues(alpha: 0.7),
-                                        AppColors.secondary
-                                            .withValues(alpha: 0.7),
-                                      ],
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    Icons.image_rounded,
-                                    size: 60,
-                                    color: Colors.white.withValues(alpha: 0.7),
-                                  ),
-                                );
-                              },
-                            )
-                          : Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    AppColors.primary.withValues(alpha: 0.7),
-                                    AppColors.secondary.withValues(alpha: 0.7),
-                                  ],
-                                ),
-                              ),
-                            ),
-                      // Gradient overlay
-                      Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withValues(alpha: 0.6),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // Favorite button
-              Positioned(
-                top: 12,
-                right: 12,
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.1),
-                        blurRadius: 8,
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    destination['isFavorite']
-                        ? Icons.favorite_rounded
-                        : Icons.favorite_outline_rounded,
-                    color: destination['isFavorite']
-                        ? Colors.red
-                        : AppColors.charcoal.withValues(alpha: 0.6),
-                    size: 20,
-                  ),
-                ),
-              ),
-              // Popular badge
-              if (destination['isPopular'] == true)
-                Positioned(
-                  top: 12,
-                  left: 12,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.accent,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'Popular',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Title
-          Text(
-            destination['name'],
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: AppColors.charcoal,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 4),
-          // Location
-          Row(
-            children: [
-              Icon(
-                Icons.location_on_outlined,
-                size: 14,
-                color: AppColors.charcoal.withValues(alpha: 0.6),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  destination['location'],
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.charcoal.withValues(alpha: 0.6),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          // Rating
-          Row(
-            children: [
-              const Icon(
-                Icons.star_rounded,
-                size: 16,
-                color: AppColors.accent,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '${destination['rating']}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.charcoal,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '(${destination['reviews']})',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppColors.charcoal.withValues(alpha: 0.5),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEventCard(Event event) {
-    // Check if event is from Tazkarti (has eventUrl containing tazkarti.com)
-    final isTazkartiEvent = event.eventUrl.contains('tazkarti.com');
-
-    return GestureDetector(
-      onTap: () => _openEventUrl(event.eventUrl),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Date badge
-              Container(
-                width: 60,
-                height: 70,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      AppColors.primary,
-                      AppColors.primary.withValues(alpha: 0.8),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      event.formattedMonth,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      event.formattedDay,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              // Event details
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      event.title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.charcoal,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.location_on_outlined,
-                          size: 14,
-                          color: AppColors.charcoal.withValues(alpha: 0.6),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            event.location,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: AppColors.charcoal.withValues(alpha: 0.6),
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (event.price != null) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Text(
-                            'Prices From: ',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: AppColors.charcoal.withValues(alpha: 0.6),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          Text(
-                            '${event.price!.toInt()} EGP',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                    // Tazkarti logo for Tazkarti events
-                    if (isTazkartiEvent) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Image.asset(
-                            'assets/images/Tazkarti_Logo.webp',
-                            height: 20,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const SizedBox.shrink();
-                            },
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              // External link icon
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: AppColors.cream,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.open_in_new_rounded,
-                  color: AppColors.primary,
-                  size: 18,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-// Sample data for popular destinations
-final List<Map<String, dynamic>> _popularDestinations = [
-  {
-    'name': 'Valley of the Kings',
-    'location': 'Luxor, Egypt',
-    'rating': 4.7,
-    'reviews': '8930',
-    'image': 'assets/images/cities/luxor.jpg',
-    'isFavorite': false,
-    'isPopular': true,
-  },
-  {
-    'name': 'Great Pyramid of Giza',
-    'location': 'Giza, Egypt',
-    'rating': 4.9,
-    'reviews': '15240',
-    'image': 'assets/images/cities/cairo.jpg',
-    'isFavorite': true,
-    'isPopular': true,
-  },
-  {
-    'name': 'Abu Simbel Temples',
-    'location': 'Aswan, Egypt',
-    'rating': 4.8,
-    'reviews': '6720',
-    'image': 'assets/images/cities/aswan.jpg',
-    'isFavorite': false,
-    'isPopular': false,
-  },
-  {
-    'name': 'Karnak Temple',
-    'location': 'Luxor, Egypt',
-    'rating': 4.6,
-    'reviews': '7850',
-    'image': 'assets/images/cities/luxor.jpg',
-    'isFavorite': false,
-    'isPopular': false,
-  },
-];
 
 

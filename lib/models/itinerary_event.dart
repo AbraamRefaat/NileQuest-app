@@ -34,4 +34,20 @@ class ItineraryEvent {
       'reason': reason,
     };
   }
+
+  ItineraryEvent copyWith({
+    Poi? poi,
+    String? startTime,
+    String? endTime,
+    double? travelTimeHours,
+    String? reason,
+  }) {
+    return ItineraryEvent(
+      poi: poi ?? this.poi,
+      startTime: startTime ?? this.startTime,
+      endTime: endTime ?? this.endTime,
+      travelTimeHours: travelTimeHours ?? this.travelTimeHours,
+      reason: reason ?? this.reason,
+    );
+  }
 }

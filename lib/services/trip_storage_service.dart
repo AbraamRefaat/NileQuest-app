@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/itinerary.dart';
 import 'auth_service.dart';
-import 'server_config_tazkarti.dart';
 
 class TripStorageService {
   final AuthService _authService = AuthService();
@@ -11,8 +10,10 @@ class TripStorageService {
   static const String _baseUrl = 'https://trip-backend-iota.vercel.app';
   static String get _tripsUrl => '$_baseUrl/api/trips';
 
-  /// Save a trip to the backend
-  Future<bool> saveTrip(Itinerary itinerary, String title, Map<String, String?> photoCache) async {
+  /// Save a trip to the backend. Returns the created trip's backend id,
+  /// an empty string when the save succeeded but the response carried no
+  /// recognizable id, or null when the save failed.
+  Future<String?> saveTrip(Itinerary itinerary, String title, Map<String, String?> photoCache) async {
     final user = _authService.currentUser;
     if (user == null) {
       throw Exception('User must be signed in to save a trip');
@@ -63,15 +64,62 @@ class TripStorageService {
       
       if (response.statusCode == 201) {
         print('✅ [TripStorageService] Trip saved successfully!');
-        return true;
+        final id = _extractTripId(response.body);
+        if (id == null) {
+          print('⚠️ [TripStorageService] Saved, but no id found in response.');
+        }
+        return id ?? '';
       } else {
         print('⚠️ [TripStorageService] Failed to save trip.');
         print('📝 Response Body: ${response.body}');
-        return false;
+        return null;
       }
     } catch (e) {
       print('❌ [TripStorageService] Error saving trip: $e');
-      return false;
+      return null;
+    }
+  }
+
+  /// Replaces a previously saved trip with an edited version. The backend has
+  /// no PUT, so this deletes the old document (best effort) and POSTs the new
+  /// one. Returns the new backend id, or null if the save failed.
+  Future<String?> updateTrip(
+    String? existingId,
+    Itinerary itinerary,
+    String title,
+    Map<String, String?> photoCache,
+  ) async {
+    if (existingId != null) {
+      final deleted = await deleteTrip(existingId);
+      if (!deleted) {
+        print('⚠️ [TripStorageService] Could not delete old trip $existingId '
+            '(continuing with save).');
+      }
+    }
+    var id = await saveTrip(itinerary, title, photoCache);
+    // One retry: after a DELETE the old version is gone, so a failed POST
+    // would otherwise lose the saved copy.
+    id ??= await saveTrip(itinerary, title, photoCache);
+    return id;
+  }
+
+  /// Pulls a Mongo-style id out of a POST response body, tolerating several
+  /// shapes: {_id}, {insertedId}, {id}, {trip: {_id}}, and {$oid} wrappers.
+  String? _extractTripId(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) return null;
+
+      dynamic raw = decoded['_id'] ??
+          decoded['insertedId'] ??
+          decoded['id'] ??
+          (decoded['trip'] is Map ? (decoded['trip'] as Map)['_id'] : null);
+
+      if (raw is Map && raw.containsKey(r'$oid')) raw = raw[r'$oid'];
+      if (raw is String && raw.isNotEmpty) return raw;
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 

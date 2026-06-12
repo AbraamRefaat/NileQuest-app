@@ -7,7 +7,7 @@ import '../services/trip_storage_service.dart';
 import 'itinerary_screen.dart';
 
 class MyTripsScreen extends StatefulWidget {
-  final Function(Itinerary) OnViewTrip;
+  final Function(Itinerary, String?) OnViewTrip;
   final VoidCallback onBack;
   final bool isEmbedded;
 
@@ -255,7 +255,8 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
           child: InkWell(
             onTap: () {
               final itinerary = Itinerary.fromJson(itineraryData);
-              
+              final backendId = (id.isEmpty || id == 'no-id') ? null : id;
+
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -282,10 +283,19 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
                       isHistoryView: true,
                       isEmbedded: true,
                       onPlaceClick: (_) {},
+                      // Saved trips can be edited; changes replace the same
+                      // backend document.
+                      tripBackendId: backendId,
+                      onItineraryChanged: backendId != null ? (_) {} : null,
+                      tripTitle: title,
                     ),
                   ),
                 ),
-              );
+              ).then((_) {
+                // Refresh the list — the trip may have been edited (re-saved
+                // under a new backend id).
+                if (mounted) _loadTrips();
+              });
             },
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

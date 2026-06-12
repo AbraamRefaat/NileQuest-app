@@ -875,3 +875,40 @@ Use this checklist before testing on a physical device:
 **Performance** — call `_addStopMarkers()` and `_drawRoute()` only when the selected day changes, not on every frame or map move. The 24h cache in `PlacesService` already handles POI data; the Directions API call is the only network request triggered per day switch.
 
 **Offline** — for offline support, download Mapbox tiles for the city region using the Mapbox Offline API before the trip. The polyline and marker data is already small enough to cache in `SharedPreferences` alongside the itinerary JSON.
+
+---
+
+## 11. Implemented Features (2026-06)
+
+The following is now live in `enhanced_map_screen_v2_functional.dart`:
+
+### Itinerary stops on the map
+- Numbered stop markers colored by day, with live status: day-color = upcoming, orange = arrived, green ✓ = photos done
+- Route polyline in the day color with a soft outline, drawn via `DirectionsService`
+- Tap a stop → bottom sheet with time range, duration, cost, AI reason, Navigate + check-in/photo actions
+- Day selector chips redraw markers/route/camera per day
+
+### 🤖 Vector dataset search (model integration)
+- The map search bar now has an **AI** button → `POST /search-by-interest` on the recommendation model (SentenceTransformer vector search over the POI dataset)
+- Results plotted as purple markers; the model's text recommendation shows in a dismissible banner
+- Files: `lib/services/vector_search_service.dart`
+
+### 🚶 Trip Mode (live trip with photo stops)
+- **Start Trip** button in itinerary mode → `TripSessionService` starts GPS tracking (`geolocator` position stream, 20 m filter)
+- Geofence: within 150 m of an upcoming stop → local notification "📸 You made it!" (flutter_local_notifications) + camera sheet
+- Manual "I'm here" check-in fallback in the stop sheet and HUD (for weak GPS / demos)
+- Live HUD: next stop, distance to it, visited count, progress bar, end-trip button
+- Walked distance accumulated from the position stream (GPS jumps > 500 m ignored)
+- Session persisted in `SharedPreferences` — survives app restarts
+- Files: `lib/models/trip_session.dart`, `lib/services/trip_session_service.dart`, `lib/services/notification_service.dart`
+
+### 📸 NileReal photo stops
+- BeReal-style capture screen: 3 photo slots, camera via `image_picker`, saved to app documents under `trip_photos/`
+- 3 photos = stop completed (green ✓ on the map)
+- File: `lib/screens/stop_photo_screen.dart`
+
+### 🎁 NileQuest Wrapped (end-of-trip slideshow)
+- Spotify-Wrapped-style auto-advancing story pages: stops conquered, km wandered (+steps), trip duration, top category, photo count, per-stop photo collages, shareable finale
+- Tap right/left to advance/rewind; story progress bars on top
+- Trip history (last 20) archived for re-viewing
+- File: `lib/screens/trip_wrapped_screen.dart`
