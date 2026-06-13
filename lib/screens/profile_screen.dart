@@ -890,9 +890,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _makePhoneCall(String phoneNumber) async {
     final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
     try {
-      if (await canLaunchUrl(phoneUri)) {
-        await launchUrl(phoneUri);
-      } else {
+      // No canLaunchUrl pre-check — unreliable on Android 11+ without
+      // package-visibility queries; just try.
+      final ok = await launchUrl(phoneUri);
+      if (!ok) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

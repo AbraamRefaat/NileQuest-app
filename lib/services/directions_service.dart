@@ -113,6 +113,9 @@ class DirectionsResult {
   final String summary;
   final String duration;
   final String distance;
+  // Numeric totals straight from the API — used for live ETA math
+  final int? distanceMeters;
+  final int? durationSeconds;
   final List<Position> routePoints;
   final List<DirectionStep> steps;
 
@@ -120,56 +123,41 @@ class DirectionsResult {
     required this.summary,
     required this.duration,
     required this.distance,
+    this.distanceMeters,
+    this.durationSeconds,
     required this.routePoints,
     required this.steps,
   });
 
-  factory DirectionsResult.fromJson(Map<String, dynamic> json) {
-    final route = json['routes'][0];
-    final leg = route['legs'][0];
-    
-    final service = DirectionsService();
-    final polyline = route['overview_polyline']['points'] as String;
-    final points = service.decodePolyline(polyline);
-
-    final steps = (leg['steps'] as List).map((step) {
-      return DirectionStep(
-        instruction: step['html_instructions'] ?? '',
-        distance: step['distance']['text'] ?? '',
-        duration: step['duration']['text'] ?? '',
-        maneuver: step['maneuver'] ?? '',
-      );
-    }).toList();
-
-    return DirectionsResult(
-      summary: route['summary'] ?? '',
-      duration: leg['duration']['text'] ?? '',
-      distance: leg['distance']['text'] ?? '',
-      routePoints: points,
-      steps: steps,
-    );
-  }
+  factory DirectionsResult.fromJson(Map<String, dynamic> json) =>
+      DirectionsResult.fromJsonRoute(json['routes'][0]);
 
   factory DirectionsResult.fromJsonRoute(Map<String, dynamic> route) {
     final leg = route['legs'][0];
-    
+
     final service = DirectionsService();
     final polyline = route['overview_polyline']['points'] as String;
     final points = service.decodePolyline(polyline);
 
     final steps = (leg['steps'] as List).map((step) {
+      final end = step['end_location'];
       return DirectionStep(
         instruction: step['html_instructions'] ?? '',
-        distance: step['distance']['text'] ?? '',
-        duration: step['duration']['text'] ?? '',
+        distance: step['distance']?['text'] ?? '',
+        duration: step['duration']?['text'] ?? '',
         maneuver: step['maneuver'] ?? '',
+        endLat: (end?['lat'] as num?)?.toDouble(),
+        endLng: (end?['lng'] as num?)?.toDouble(),
+        distanceMeters: step['distance']?['value'] as int?,
       );
     }).toList();
 
     return DirectionsResult(
       summary: route['summary'] ?? '',
-      duration: leg['duration']['text'] ?? '',
-      distance: leg['distance']['text'] ?? '',
+      duration: leg['duration']?['text'] ?? '',
+      distance: leg['distance']?['text'] ?? '',
+      distanceMeters: leg['distance']?['value'] as int?,
+      durationSeconds: leg['duration']?['value'] as int?,
       routePoints: points,
       steps: steps,
     );
@@ -181,11 +169,25 @@ class DirectionStep {
   final String distance;
   final String duration;
   final String maneuver;
+  // Where this step ends — i.e. where the NEXT maneuver happens
+  final double? endLat;
+  final double? endLng;
+  final int? distanceMeters;
 
   DirectionStep({
     required this.instruction,
     required this.distance,
     required this.duration,
     required this.maneuver,
+    this.endLat,
+    this.endLng,
+    this.distanceMeters,
   });
+
+  /// Instruction with the HTML tags stripped ("Turn <b>right</b>…" → plain)
+  String get plainInstruction => instruction
+      .replaceAll(RegExp(r'<[^>]*>'), ' ')
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 }

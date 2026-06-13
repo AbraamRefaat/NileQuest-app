@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:flutter/material.dart';
 import '../models/itinerary.dart';
@@ -33,18 +32,10 @@ class ItineraryMapService {
     }).toList();
   }
 
-  /// Get all POI positions for entire itinerary
-  Map<int, List<ItineraryMapPoint>> getAllPoints(Itinerary itinerary) {
-    final Map<int, List<ItineraryMapPoint>> allPoints = {};
-    
-    for (final day in itinerary.sortedDays) {
-      allPoints[day] = getPointsForDay(itinerary, day);
-    }
-    
-    return allPoints;
-  }
-
-  /// Calculate route between consecutive POIs for a day
+  /// Calculate route between consecutive POIs for a day. Every pair of
+  /// stops is always connected: when the directions API fails or returns
+  /// nothing, the segment falls back to a straight line so the trip never
+  /// shows up as disconnected dots.
   Future<List<Position>> getRouteForDay(Itinerary itinerary, int day) async {
     final points = getPointsForDay(itinerary, day);
     if (points.length < 2) return [];
@@ -55,6 +46,7 @@ class ItineraryMapService {
       final origin = points[i];
       final destination = points[i + 1];
 
+      List<Position>? segment;
       try {
         final directions = await _directionsService.getDirections(
           originLat: origin.position.lat.toDouble(),
@@ -63,16 +55,14 @@ class ItineraryMapService {
           destLng: destination.position.lng.toDouble(),
           mode: 'driving',
         );
-
-        if (directions != null) {
-          fullRoute.addAll(directions.routePoints);
+        if (directions != null && directions.routePoints.isNotEmpty) {
+          segment = directions.routePoints;
         }
       } catch (e) {
         print('Error getting route segment: $e');
-        // Fallback: draw straight line
-        fullRoute.add(origin.position);
-        fullRoute.add(destination.position);
       }
+
+      fullRoute.addAll(segment ?? [origin.position, destination.position]);
     }
 
     return fullRoute;
@@ -90,22 +80,6 @@ class ItineraryMapService {
       const Color(0xFFF39C12), // Yellow
     ];
     return colors[(day - 1) % colors.length];
-  }
-
-  /// Get color for time of day
-  Color getColorForTimeOfDay(String startTime) {
-    try {
-      final hour = int.parse(startTime.split(':')[0]);
-      if (hour < 12) {
-        return const Color(0xFF3498DB); // Morning - Blue
-      } else if (hour < 17) {
-        return const Color(0xFFF39C12); // Afternoon - Orange
-      } else {
-        return const Color(0xFF9B59B6); // Evening - Purple
-      }
-    } catch (e) {
-      return const Color(0xFF3498DB);
-    }
   }
 
   /// Calculate bounds to fit all points
@@ -165,122 +139,6 @@ class ItineraryMapService {
     );
   }
 
-  /// Get estimated travel time between two points (in minutes)
-  Future<int?> getTravelTimeBetween(
-    ItineraryMapPoint origin,
-    ItineraryMapPoint destination,
-  ) async {
-    try {
-      final directions = await _directionsService.getDirections(
-        originLat: origin.position.lat.toDouble(),
-        originLng: origin.position.lng.toDouble(),
-        destLat: destination.position.lat.toDouble(),
-        destLng: destination.position.lng.toDouble(),
-        mode: 'driving',
-      );
-
-      if (directions != null) {
-        // Parse duration string (e.g., "15 mins" or "1 hour 30 mins")
-        final durationStr = directions.duration;
-        final regex = RegExp(r'(\d+)\s*(hour|min)');
-        final matches = regex.allMatches(durationStr);
-        
-        int totalMinutes = 0;
-        for (var match in matches) {
-          final value = int.parse(match.group(1)!);
-          final unit = match.group(2);
-          if (unit == 'hour') {
-            totalMinutes += value * 60;
-          } else {
-            totalMinutes += value;
-          }
-        }
-        return totalMinutes;
-      }
-    } catch (e) {
-      print('Error getting travel time: $e');
-    }
-    return null;
-  }
-
-  /// Optimize route order (simple nearest-neighbor algorithm)
-  List<ItineraryMapPoint> optimizeRoute(
-    List<ItineraryMapPoint> points,
-    Position? startPosition,
-  ) {
-    if (points.length <= 2) return points;
-
-    List<ItineraryMapPoint> optimized = [];
-    List<ItineraryMapPoint> remaining = List.from(points);
-
-    // Start from user's location or first point
-    Position currentPos = startPosition ?? points[0].position;
-
-    while (remaining.isNotEmpty) {
-      // Find nearest point
-      ItineraryMapPoint? nearest;
-      double minDistance = double.infinity;
-
-      for (var point in remaining) {
-        final distance = _calculateDistance(
-          currentPos.lat.toDouble(),
-          currentPos.lng.toDouble(),
-          point.position.lat.toDouble(),
-          point.position.lng.toDouble(),
-        );
-
-        if (distance < minDistance) {
-          minDistance = distance;
-          nearest = point;
-        }
-      }
-
-      if (nearest != null) {
-        optimized.add(nearest);
-        remaining.remove(nearest);
-        currentPos = nearest.position;
-      }
-    }
-
-    // Renumber the points
-    for (int i = 0; i < optimized.length; i++) {
-      optimized[i] = ItineraryMapPoint(
-        position: optimized[i].position,
-        name: optimized[i].name,
-        category: optimized[i].category,
-        orderNumber: i + 1,
-        startTime: optimized[i].startTime,
-        endTime: optimized[i].endTime,
-        duration: optimized[i].duration,
-        cost: optimized[i].cost,
-        description: optimized[i].description,
-        photoUrl: optimized[i].photoUrl,
-        event: optimized[i].event,
-      );
-    }
-
-    return optimized;
-  }
-
-  /// Calculate distance between two points (Haversine formula)
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const double earthRadius = 6371; // km
-    final dLat = _toRadians(lat2 - lat1);
-    final dLon = _toRadians(lon2 - lon1);
-
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_toRadians(lat1)) *
-            math.cos(_toRadians(lat2)) *
-            math.sin(dLon / 2) *
-            math.sin(dLon / 2);
-
-    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-    return earthRadius * c;
-  }
-
-  double _toRadians(double degrees) {
-    return degrees * (3.14159265359 / 180.0);
-  }
 }
 
 class ItineraryMapPoint {

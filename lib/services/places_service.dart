@@ -131,7 +131,8 @@ class PlacesService {
         queryParameters: {
           'place_id': placeId,
           'fields': 'name,formatted_address,geometry,photos,rating,'
-              'opening_hours,formatted_phone_number,website,reviews,types',
+              'user_ratings_total,opening_hours,formatted_phone_number,'
+              'website,reviews,types',
           'key': _apiKey,
         },
       );
@@ -144,6 +145,126 @@ class PlacesService {
       print('Error fetching place details: $e');
       return null;
     }
+  }
+
+  /// Google-Maps-style search suggestions while typing. Biased to Egypt and
+  /// (when known) the user's position so "pyramids" finds Giza, not Mexico.
+  Future<List<PlaceSuggestion>> autocomplete(
+    String input, {
+    double? lat,
+    double? lng,
+  }) async {
+    final query = input.trim();
+    if (query.length < 2) return [];
+    try {
+      final params = <String, dynamic>{
+        'input': query,
+        'components': 'country:eg',
+        'key': _apiKey,
+      };
+      if (lat != null && lng != null) {
+        params['locationbias'] = 'circle:50000@$lat,$lng';
+      }
+      final response = await _dio.get(
+        '$_baseUrl/place/autocomplete/json',
+        queryParameters: params,
+      );
+      if (response.statusCode == 200 && response.data['status'] == 'OK') {
+        final predictions = response.data['predictions'] as List;
+        return predictions.map((p) {
+          final formatting = p['structured_formatting'] ?? {};
+          return PlaceSuggestion(
+            placeId: p['place_id'] ?? '',
+            primaryText: formatting['main_text'] ?? p['description'] ?? '',
+            secondaryText: formatting['secondary_text'] ?? '',
+          );
+        }).where((s) => s.placeId.isNotEmpty).toList();
+      }
+      return [];
+    } catch (e) {
+      print('Error in autocomplete: $e');
+      return [];
+    }
+  }
+
+  /// What did the user tap on the map? Returns the nearest real place
+  /// (shop, monument, restaurant, …) within ~80 m of the coordinate, or
+  /// null when the tap landed on nothing interesting.
+  Future<TouristAttraction?> findPlaceAtPoint(double lat, double lng) async {
+    // Area-type results that aren't a tappable "place"
+    const excluded = {
+      'locality',
+      'sublocality',
+      'sublocality_level_1',
+      'political',
+      'postal_code',
+      'country',
+      'administrative_area_level_1',
+      'administrative_area_level_2',
+      'administrative_area_level_3',
+      'route',
+      'street_address',
+      'neighborhood',
+      'plus_code',
+    };
+    try {
+      final response = await _dio.get(
+        '$_baseUrl/place/nearbysearch/json',
+        queryParameters: {
+          'location': '$lat,$lng',
+          'radius': 80,
+          'key': _apiKey,
+        },
+      );
+      if (response.statusCode != 200 || response.data['status'] != 'OK') {
+        return null;
+      }
+      final results = (response.data['results'] as List)
+          .cast<Map<String, dynamic>>();
+      for (final place in results) {
+        final types =
+            ((place['types'] as List?)?.cast<String>() ?? []).toSet();
+        if (types.isEmpty || types.every(excluded.contains)) continue;
+        return _parsePlaceToAttraction(
+          place,
+          _extractCityFromAddress(place['vicinity'] ?? ''),
+        );
+      }
+      return null;
+    } catch (e) {
+      print('Error finding place at point: $e');
+      return null;
+    }
+  }
+
+  /// Resolve an autocomplete suggestion to a full attraction (with
+  /// coordinates) via Place Details.
+  Future<TouristAttraction?> findPlaceById(
+    String placeId,
+    String fallbackName,
+  ) async {
+    final details = await getPlaceDetails(placeId);
+    final geometry = details?['geometry']?['location'];
+    if (details == null || geometry == null) return null;
+
+    final types = (details['types'] as List?)?.cast<String>() ?? [];
+    return TouristAttraction(
+      id: placeId,
+      name: details['name'] ?? fallbackName,
+      latitude: (geometry['lat'] as num?)?.toDouble() ?? 0.0,
+      longitude: (geometry['lng'] as num?)?.toDouble() ?? 0.0,
+      category: _determineCategoryFromTypes(types),
+      description: details['formatted_address'] ?? '',
+      city: '',
+      rating: (details['rating'] as num?)?.toDouble(),
+      userRatingsTotal: details['user_ratings_total'] as int?,
+      photoReference: details['photos']?[0]?['photo_reference'],
+      isOpen: details['opening_hours']?['open_now'],
+      types: types,
+      address: details['formatted_address'],
+      phoneNumber: details['formatted_phone_number'],
+      website: details['website'],
+    );
   }
 
   /// Get photo URL for a place
@@ -407,4 +528,17 @@ class PlacesService {
     }
     return 'Egypt'; // Default fallback
   }
+}
+
+/// One Google Places Autocomplete suggestion
+class PlaceSuggestion {
+  final String placeId;
+  final String primaryText;
+  final String secondaryText;
+
+  PlaceSuggestion({
+    required this.placeId,
+    required this.primaryText,
+    required this.secondaryText,
+  });
 }

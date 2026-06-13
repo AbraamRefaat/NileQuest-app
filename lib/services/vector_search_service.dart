@@ -76,7 +76,22 @@ class VectorSearchService {
 
     return VectorSearchResponse(
       places: places,
-      aiRecommendation: data['recommendation']?.toString(),
+      aiRecommendation: _cleanRecommendation(data['recommendation']),
     );
+  }
+
+  /// The backend sometimes returns raw internal ids (UUID lists) in the
+  /// recommendation field — those are useless to show a tourist, so only
+  /// keep recommendations that read like an actual sentence.
+  static String? _cleanRecommendation(dynamic raw) {
+    if (raw == null) return null;
+    final text = raw.toString().trim();
+    if (text.isEmpty) return null;
+    final uuidRe = RegExp(
+        r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}');
+    if (text.startsWith('[') || text.startsWith('{') || uuidRe.hasMatch(text)) {
+      return null;
+    }
+    return text;
   }
 }
