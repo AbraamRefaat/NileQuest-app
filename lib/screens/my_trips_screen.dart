@@ -298,7 +298,7 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
                       ),
                       isHistoryView: true,
                       isEmbedded: true,
-                      onPlaceClick: (_) {},
+                      onPlaceClick: (_, __) {},
                       // Saved trips can be edited; changes replace the same
                       // backend document.
                       tripBackendId: backendId,

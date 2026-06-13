@@ -1,3 +1,7 @@
+import 'dart:math';
+import 'itinerary_event.dart';
+import 'poi.dart';
+
 class TouristAttraction {
   final String id;
   final String name;
@@ -106,6 +110,46 @@ class TouristAttraction {
       address: address ?? this.address,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       website: website ?? this.website,
+    );
+  }
+
+  /// How "popular" this place is, used to rank the home carousel.
+  /// Combines the star rating with how many people reviewed it (log-scaled so
+  /// a handful of 5-star reviews can't outrank a world landmark with
+  /// thousands). Places without a rating sink to the bottom.
+  double get popularityScore {
+    if (rating == null) return 0;
+    final reviews = userRatingsTotal ?? 0;
+    return rating! * log(reviews + 1);
+  }
+
+  /// Adapt this attraction to the [ItineraryEvent]/[Poi] shape that
+  /// PlaceDetailScreen consumes, so a destination card can open the same
+  /// detail view the itinerary uses.
+  ItineraryEvent toItineraryEvent() {
+    return ItineraryEvent(
+      poi: Poi(
+        id: id,
+        name: name,
+        lat: latitude,
+        lon: longitude,
+        category: category,
+        subcategory: (types != null && types!.isNotEmpty)
+            ? types!.first.replaceAll('_', ' ')
+            : '',
+        durationHours: 1.5,
+        cost: 0,
+        openingHours: isOpen == null
+            ? '00:00 - 24:00'
+            : (isOpen! ? 'Open now' : 'Closed now'),
+        indoorOutdoor: 'Indoor/Outdoor',
+        description: description,
+        score: popularityScore,
+      ),
+      startTime: '',
+      endTime: '',
+      travelTimeHours: 0,
+      reason: '',
     );
   }
 }

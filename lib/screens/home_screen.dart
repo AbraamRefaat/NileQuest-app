@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
-import '../constants/popular_destinations.dart';
 import '../models/event.dart';
+import '../models/tourist_attraction.dart';
 import '../services/tazkarti_service.dart';
+import '../services/places_service.dart';
 import '../widgets/location_chip.dart';
 import '../widgets/cards/event_card.dart';
 import '../widgets/cards/destination_card.dart';
 import '../widgets/common/category_chips.dart';
 import 'all_events_screen.dart';
+import 'all_destinations_screen.dart';
+import 'place_detail_screen.dart';
 import 'who_am_i_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -27,9 +30,12 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   final TazkartiService _tazkartiService = TazkartiService();
+  final PlacesService _placesService = PlacesService();
   List<Event> _upcomingEvents = [];
   bool _isLoadingEvents = true;
   String _selectedEventCategory = 'All';
+  List<TouristAttraction> _popularDestinations = [];
+  bool _isLoadingDestinations = true;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnim;
 
@@ -44,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
     _loadEvents();
+    _loadDestinations();
   }
 
   @override
@@ -65,6 +72,36 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         _isLoadingEvents = false;
       });
     }
+  }
+
+  Future<void> _loadDestinations() async {
+    try {
+      final attractions = await _placesService.fetchAllAttractions();
+      // Keep only rated places, rank by popularity, show the top handful.
+      final ranked = attractions.where((a) => a.rating != null).toList()
+        ..sort((a, b) => b.popularityScore.compareTo(a.popularityScore));
+      setState(() {
+        _popularDestinations = ranked.take(10).toList();
+        _isLoadingDestinations = false;
+      });
+    } catch (e) {
+      print('Error loading destinations: $e');
+      setState(() {
+        _isLoadingDestinations = false;
+      });
+    }
+  }
+
+  void _openDestination(TouristAttraction attraction) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlaceDetailScreen(
+          event: attraction.toItineraryEvent(),
+          onBack: () => Navigator.pop(context),
+        ),
+      ),
+    );
   }
 
   List<String> get _eventCategories =>
@@ -344,19 +381,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             fontWeight: FontWeight.bold,
                           ),
                     ),
-                    TextButton(
-                      onPressed: () {
-                        // TODO: Navigate to all destinations
-                      },
-                      child: Text(
-                        'See All',
-                        style: TextStyle(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
+                    if (!_isLoadingDestinations &&
+                        _popularDestinations.isNotEmpty)
+                      TextButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const AllDestinationsScreen(),
+                            ),
+                          );
+                        },
+                        child: Text(
+                          'See All',
+                          style: TextStyle(
+                            color: AppColors.accent,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -364,18 +408,47 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               const SizedBox(height: 16),
 
               // Popular Destinations List
-              SizedBox(
-                height: 280,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  itemCount: popularDestinations.length,
-                  itemBuilder: (context, index) {
-                    final destination = popularDestinations[index];
-                    return DestinationCard(destination: destination);
-                  },
-                ),
-              ),
+              _isLoadingDestinations
+                  ? const SizedBox(
+                      height: 280,
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    )
+                  : _popularDestinations.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 40,
+                          ),
+                          child: Center(
+                            child: Text('No destinations available'),
+                          ),
+                        )
+                      : SizedBox(
+                          height: 280,
+                          child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 24),
+                            itemCount: _popularDestinations.length,
+                            itemBuilder: (context, index) {
+                              final attraction = _popularDestinations[index];
+                              return DestinationCard(
+                                destination: destinationCardData(
+                                  attraction,
+                                  imageUrl: attraction.photoReference != null
+                                      ? _placesService.getPhotoUrl(
+                                          attraction.photoReference!)
+                                      : null,
+                                ),
+                                onTap: () => _openDestination(attraction),
+                              );
+                            },
+                          ),
+                        ),
 
               const SizedBox(height: 40),
 

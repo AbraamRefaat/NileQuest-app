@@ -9,7 +9,7 @@ class TripsScreen extends StatelessWidget {
   final UserPreferences? currentPreferences;
   final bool isHistoryView;
   final String? tripBackendId;
-  final Function(int) onPlaceClick;
+  final Function(int day, int placeIndex) onPlaceClick;
   final Function(Itinerary, String?) OnViewTrip;
   final ValueChanged<Itinerary>? onItineraryChanged;
   final ValueChanged<String>? onTripSaved;

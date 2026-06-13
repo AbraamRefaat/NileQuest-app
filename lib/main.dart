@@ -108,6 +108,7 @@ class _AppNavigatorState extends State<AppNavigator> {
   // same backend document instead of creating new ones.
   String? _currentTripBackendId;
   int? _selectedDayIndex;
+  int? _selectedPlaceIndex;
   bool _isHistoryView = false;
   int _preferenceInitialStep = 1;
   final AuthService _authService = AuthService();
@@ -404,8 +405,9 @@ class _AppNavigatorState extends State<AppNavigator> {
               );
             }
           },
-          onPlaceClick: (dayIndex) {
+          onPlaceClick: (dayIndex, placeIndex) {
             _selectDay(dayIndex);
+            setState(() => _selectedPlaceIndex = placeIndex);
             _navigateToScreen(AppScreen.placeDetail);
           },
           onTripFinished: _clearCurrentTrip,
@@ -433,8 +435,8 @@ class _AppNavigatorState extends State<AppNavigator> {
         );
       case AppScreen.placeDetail:
         return PlaceDetailScreen(
-          event: _selectedDayIndex != null && _generatedItinerary != null
-              ? _generatedItinerary!.days[_selectedDayIndex]?.first
+          event: _selectedDayIndex != null && _selectedPlaceIndex != null && _generatedItinerary != null
+              ? _generatedItinerary!.days[_selectedDayIndex!]?.elementAtOrNull(_selectedPlaceIndex!)
               : null,
           onBack: () => _navigateToScreen(AppScreen.itinerary),
         );

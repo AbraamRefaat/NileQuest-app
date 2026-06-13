@@ -17,7 +17,7 @@ import '../widgets/sheets/add_stop_sheet.dart';
 class ItineraryScreen extends StatefulWidget {
   final Itinerary? itinerary;
   final UserPreferences? preferences;
-  final Function(int) onPlaceClick;
+  final Function(int day, int placeIndex) onPlaceClick;
   final bool isHistoryView;
   final bool isEmbedded;
 
@@ -487,7 +487,7 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
                       day: dayNumber,
                       events: dayEvents,
                       isOpen: openByDefault || _isEditing,
-                      onPlaceClick: () => widget.onPlaceClick(dayNumber),
+                      onPlaceClick: (placeIndex) => widget.onPlaceClick(dayNumber, placeIndex),
                       photoService: _photoService,
                       photoCache: _photoCache,
                       isEditing: _isEditing,
@@ -683,7 +683,7 @@ class DayCard extends StatefulWidget {
   final int day;
   final List<ItineraryEvent> events;
   final bool isOpen;
-  final VoidCallback onPlaceClick;
+  final void Function(int placeIndex) onPlaceClick;
   final GooglePlacesPhotoService photoService;
   final Map<String, String?> photoCache;
 
@@ -933,7 +933,7 @@ class _DayCardState extends State<DayCard> with AutomaticKeepAliveClientMixin {
 
         return _ActivityItem(
           event: event,
-          onClick: widget.onPlaceClick,
+          onClick: () => widget.onPlaceClick(index),
           photoService: widget.photoService,
           photoCache: widget.photoCache,
           isLast: isLast,
