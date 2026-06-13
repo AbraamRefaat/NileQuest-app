@@ -895,7 +895,7 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     // Zoom is handled by pinch gestures — no +/- buttons needed.
     return Positioned(
       right: 16,
-      top: MediaQuery.of(context).padding.top + 110,
+      top: MediaQuery.of(context).padding.top + 45,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -2393,13 +2393,14 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     final session = _tripService.session;
     final active = _tripService.hasActiveTrip;
 
-    final navClearance = MediaQuery.of(context).padding.bottom + 76;
+    // navbar (80) + camera button top (18 lift + 72 height) + small gap (10)
+    final navClearance = MediaQuery.of(context).padding.bottom + 100 + 10;
 
     if (!active) {
       return Positioned(
         left: 24,
         right: 24,
-        bottom: navClearance + 12,
+        bottom: navClearance,
         child: ElevatedButton.icon(
           onPressed: _itineraryPoints.isEmpty ? null : _startTrip,
           icon: const Icon(Icons.play_arrow_rounded, size: 22),

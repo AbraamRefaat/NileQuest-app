@@ -12,7 +12,6 @@ import '../widgets/common/category_chips.dart';
 import 'all_events_screen.dart';
 import 'all_destinations_screen.dart';
 import 'place_detail_screen.dart';
-import 'who_am_i_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback onGenerateTrip;
@@ -28,7 +27,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> {
   final TazkartiService _tazkartiService = TazkartiService();
   final PlacesService _placesService = PlacesService();
   List<Event> _upcomingEvents = [];
@@ -36,27 +35,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   String _selectedEventCategory = 'All';
   List<TouristAttraction> _popularDestinations = [];
   bool _isLoadingDestinations = true;
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnim;
-
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat(reverse: true);
-    _pulseAnim = Tween<double>(begin: 1.0, end: 1.12).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
     _loadEvents();
     _loadDestinations();
-  }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
   }
 
   Future<void> _loadEvents() async {
@@ -576,76 +559,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
             ],
           ),
-        ),
-      ),
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 90, right: 8),
-        child: AnimatedBuilder(
-          animation: _pulseAnim,
-          builder: (context, child) {
-            return Transform.scale(
-              scale: _pulseAnim.value,
-              child: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.3 * _pulseAnim.value),
-                      blurRadius: 15,
-                      spreadRadius: 2,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: FloatingActionButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      PageRouteBuilder(
-                        pageBuilder: (_, anim, __) => const WhoAmIScreen(),
-                        transitionsBuilder: (_, anim, __, child) => FadeTransition(
-                          opacity: anim,
-                          child: SlideTransition(
-                            position: Tween<Offset>(
-                              begin: const Offset(0, 0.06),
-                              end: Offset.zero,
-                            ).animate(
-                                CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-                            child: child,
-                          ),
-                        ),
-                        transitionDuration: const Duration(milliseconds: 450),
-                      ),
-                    );
-                  },
-                  backgroundColor: Colors.transparent,
-                  elevation: 0,
-                  highlightElevation: 0,
-                  shape: const CircleBorder(),
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          AppColors.primary,
-                          AppColors.primaryLight,
-                        ],
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.camera_enhance_rounded,
-                      color: AppColors.secondary,
-                      size: 30,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
         ),
       ),
     );

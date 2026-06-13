@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -131,6 +132,35 @@ class TripSessionService extends ChangeNotifier {
         .toList();
   }
 
+  /// Permanently remove a finished trip from the Highlights gallery, including
+  /// the photo files it captured (they live in the app documents directory and
+  /// are no longer referenced anywhere once the session is gone).
+  Future<void> deleteFromHistory(String sessionId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_historyKey) ?? [];
+    final kept = <String>[];
+    for (final entry in raw) {
+      try {
+        final session = TripSession.fromJson(jsonDecode(entry));
+        if (session.id == sessionId) {
+          // Best-effort delete of this trip's photos from disk.
+          for (final stop in session.stops) {
+            for (final path in stop.photoPaths) {
+              try {
+                final file = File(path);
+                if (file.existsSync()) file.deleteSync();
+              } catch (_) {/* ignore individual file errors */}
+            }
+          }
+          continue; // drop this entry
+        }
+      } catch (_) {/* keep undecodable entries untouched */}
+      kept.add(entry);
+    }
+    await prefs.setStringList(_historyKey, kept);
+    notifyListeners();
+  }
+
   // ── Internals ──────────────────────────────────────────────────────
 
   TripStop? _stopAt(int index) {
@@ -209,8 +239,8 @@ class TripSessionService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final history = prefs.getStringList(_historyKey) ?? [];
     history.add(jsonEncode(s.toJson()));
-    // Keep last 20 trips
-    while (history.length > 20) {
+    // Keep last 60 trips (these power the Highlights gallery)
+    while (history.length > 60) {
       history.removeAt(0);
     }
     await prefs.setStringList(_historyKey, history);

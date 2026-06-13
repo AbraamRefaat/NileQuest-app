@@ -8,6 +8,7 @@ import '../models/user.dart';
 import '../widgets/gamification/level_progress_bar.dart';
 import '../widgets/gamification/badges_grid.dart';
 import 'my_trips_screen.dart';
+import 'highlights_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final VoidCallback onSignOut;
@@ -427,6 +428,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                     const SizedBox(height: 32),
 
+                    // Highlights Section — relive past trip recaps
+                    Text(
+                      'Highlights',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    _buildHighlightsCard(),
+
+                    const SizedBox(height: 32),
+
                     // Trip History Section
                     Text(
                       'Trip history',
@@ -548,6 +563,82 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHighlightsCard() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const HighlightsScreen()),
+          );
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [AppColors.primary, AppColors.accent],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.25),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Center(
+                    child: Text('🏺', style: TextStyle(fontSize: 26)),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Your Highlights',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        'Relive every trip recap, photos & all',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_ios_rounded,
+                    color: Colors.white, size: 16),
+              ],
+            ),
+          ),
         ),
       ),
     );

@@ -18,6 +18,7 @@ import 'screens/enhanced_map_screen_v2_functional.dart';
 import 'screens/place_detail_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/trips_screen.dart';
+import 'screens/who_am_i_screen.dart';
 import 'widgets/bottom_nav.dart';
 import 'widgets/auth_required_dialog.dart';
 import 'models/user_preferences.dart';
@@ -493,6 +494,27 @@ class _AppNavigatorState extends State<AppNavigator> {
               child: BottomNav(
                 activeTab: _activeTab,
                 onTabChange: _handleTabChange,
+                onCameraPressed: () {
+                  Navigator.push(
+                    context,
+                    PageRouteBuilder(
+                      pageBuilder: (_, anim, __) => const WhoAmIScreen(),
+                      transitionsBuilder: (_, anim, __, child) =>
+                          FadeTransition(
+                        opacity: anim,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0, 0.06),
+                            end: Offset.zero,
+                          ).animate(CurvedAnimation(
+                              parent: anim, curve: Curves.easeOutCubic)),
+                          child: child,
+                        ),
+                      ),
+                      transitionDuration: const Duration(milliseconds: 450),
+                    ),
+                  );
+                },
               ),
             ),
         ],
