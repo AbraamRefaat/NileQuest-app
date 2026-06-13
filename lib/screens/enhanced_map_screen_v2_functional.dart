@@ -100,6 +100,9 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
   // When a marker annotation was last tapped — the plain map-tap listener
   // fires for the same touch and must not fight it.
   DateTime? _lastMarkerTapAt;
+
+  // Temporary pin dropped at the tap location while the network resolves
+  PointAnnotation? _tapPinAnnotation;
   
   // Itinerary mode
   bool _isItineraryMode = false;
@@ -520,9 +523,6 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
           if (_isItineraryMode && _isMapReady)
             _buildTripHud(),
 
-          // 🤖 AI recommendation banner (after vector search)
-          if (_aiRecommendation != null && _aiRecommendation!.isNotEmpty)
-            _buildAiBanner(),
 
           // 🌟 Loading
           if (_isLoading || !_isMapReady)
@@ -763,39 +763,6 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
                   ),
                 ),
               ),
-            // 🤖 AI semantic search — queries the model's vector dataset
-            if (_isVectorSearching)
-              const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  valueColor:
-                      AlwaysStoppedAnimation<Color>(Color(0xFF8E44AD)),
-                ),
-              )
-            else
-              GestureDetector(
-                onTap: () => _runVectorSearch(_searchTextController.text),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF8E44AD), Color(0xFF5E2D79)],
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Text(
-                    '🤖 AI',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ),
           ],
         ),
     );
@@ -962,23 +929,6 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
             tooltip: 'My location',
             onPressed: _recenterMap,
             gradient: accentGradient,
-          ),
-          const SizedBox(height: 16),
-          _buildGlassButton(
-            icon: Icons.explore_rounded,
-            tooltip: 'Nearby places',
-            onPressed: () => _togglePanel(MapPanelType.nearby),
-            gradient: _activePanel == MapPanelType.nearby
-                ? accentGradient
-                : whiteGradient,
-          ),
-          const SizedBox(height: 8),
-          _buildGlassButton(
-            icon: Icons.emergency_rounded,
-            tooltip: 'Emergency / SOS',
-            onPressed: () => _togglePanel(MapPanelType.emergency),
-            gradient: sosGradient,
-            iconColor: const Color(0xFFE74C3C),
           ),
         ],
       ),
@@ -1254,8 +1204,9 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
 
     // Sits fully above the bottom navigation bar so the action row is
     // always visible.
+    final navBottom = MediaQuery.of(context).padding.bottom + 76;
     return Positioned(
-      bottom: 130,
+      bottom: navBottom + 12,
       left: 16,
       right: 16,
       child: AnimatedSlide(
@@ -1355,11 +1306,14 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
                           shape: const CircleBorder(),
                           child: InkWell(
                             customBorder: const CircleBorder(),
-                            onTap: () => setState(() {
-                              _selectedAttraction = null;
-                              _selectedPhotoUrl = null;
+                            onTap: () {
+                              _clearTapPin();
+                              setState(() {
+                                _selectedAttraction = null;
+                                _selectedPhotoUrl = null;
+                              });
                               _addAttractionMarkers();
-                            }),
+                            },
                             child: const Padding(
                               padding: EdgeInsets.all(6),
                               child: Icon(Icons.close_rounded, color: Colors.white, size: 20),
@@ -1670,17 +1624,93 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
       return;
     }
 
-    // Ask Google what lives at the tapped spot and open it
-    final place = await _placesService.findPlaceAtPoint(lat, lng);
-    if (place == null || !mounted) return;
+    // Try to identify the Mapbox-rendered POI label the user tapped —
+    // this gives us the exact feature name AND its geometry coordinates
+    // so the pin can snap to the Mapbox tile position, not a nearby guess.
+    String? featureName;
+    double featureLat = lat;
+    double featureLng = lng;
+    try {
+      final features = await _mapboxMap?.queryRenderedFeatures(
+        RenderedQueryGeometry.fromScreenCoordinate(
+          gestureContext.touchPosition,
+        ),
+        RenderedQueryOptions(layerIds: null, filter: null),
+      );
+      if (features != null) {
+        for (final qf in features) {
+          if (qf == null) continue;
+          final feature = qf.queriedFeature.feature;
+          final props = feature['properties'];
+          if (props is Map) {
+            final name = props['name_en'] ?? props['name'];
+            if (name != null && name.toString().trim().isNotEmpty) {
+              featureName = name.toString().trim();
+              // Pull the exact coordinates from the vector-tile geometry
+              final geometry = feature['geometry'];
+              if (geometry is Map && geometry['type'] == 'Point') {
+                final coords = geometry['coordinates'];
+                if (coords is List && coords.length >= 2) {
+                  featureLng = (coords[0] as num).toDouble();
+                  featureLat = (coords[1] as num).toDouble();
+                }
+              }
+              break;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Drop a temporary grey pin at the exact feature position (instant feedback)
+    _clearTapPin();
+    final greyPin = await _pinBytes(const Color(0xFF9E9E9E));
+    _tapPinAnnotation = await _pointAnnotationManager?.create(
+      PointAnnotationOptions(
+        geometry: Point(coordinates: Position(featureLng, featureLat)),
+        image: greyPin,
+        iconSize: 1.1,
+        iconAnchor: IconAnchor.BOTTOM,
+        symbolSortKey: 200.0,
+      ),
+    );
+
+    // Named Mapbox feature → Text Search by name; otherwise fall back to
+    // the 80 m proximity search.
+    TouristAttraction? place;
+    if (featureName != null) {
+      place = await _placesService.findPlaceByName(featureName, featureLat, featureLng);
+    }
+    place ??= await _placesService.findPlaceAtPoint(featureLat, featureLng);
+
+    // Snap the place coordinates to the Mapbox feature position so the orange
+    // balloon pin lands exactly on the map label the user tapped.
+    if (place != null && featureName != null) {
+      place = place.copyWith(latitude: featureLat, longitude: featureLng);
+    }
+
+    if (place == null || !mounted) {
+      _clearTapPin();
+      return;
+    }
     if (_lastMarkerTapAt != null &&
         DateTime.now().difference(_lastMarkerTapAt!).inMilliseconds < 1000) {
+      _clearTapPin();
       return; // a marker tap arrived while we were looking it up
     }
     HapticFeedback.selectionClick();
+    // Remove temp pin — _openPlace → _addAttractionMarkers draws the real one
+    _clearTapPin();
     final currentZoom =
         (await _mapboxMap?.getCameraState())?.zoom ?? 15.0;
     await _openPlace(place, zoom: math.max(currentZoom, 15.0));
+  }
+
+  void _clearTapPin() {
+    if (_tapPinAnnotation != null) {
+      _pointAnnotationManager?.delete(_tapPinAnnotation!);
+      _tapPinAnnotation = null;
+    }
   }
 
   void _handleMarkerTap(PointAnnotation annotation) {
@@ -1940,29 +1970,109 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
 
   Future<void> _endTrip({bool skipConfirm = false}) async {
     if (!skipConfirm) {
-      final confirmed = await showDialog<bool>(
+      final confirmed = await showModalBottomSheet<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('End your trip?'),
-          content: const Text(
-              'We\'ll wrap up your day and show you your trip recap! 🎁'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Keep going'),
+        backgroundColor: Colors.transparent,
+        builder: (ctx) {
+          return Container(
+            margin: EdgeInsets.fromLTRB(
+                16, 0, 16, MediaQuery.of(ctx).padding.bottom + 16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
             ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('End & see Wrapped'),
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE67E22).withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.flag_rounded,
+                    color: Color(0xFFE67E22),
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'End your trip?',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.charcoal,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "We'll wrap up your journey and show\nyou your trip recap.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.charcoal.withValues(alpha: 0.6),
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 28),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                    label: const Text('End & see Wrapped'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      textStyle: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: Text(
+                      'Keep going',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.charcoal.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       );
       if (confirmed != true) return;
     }
@@ -2115,7 +2225,8 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) => Container(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        padding: EdgeInsets.fromLTRB(
+            20, 12, 20, MediaQuery.of(ctx).padding.bottom + 20),
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
@@ -2184,13 +2295,6 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
                 Text(point.formattedDuration,
                     style: const TextStyle(
                         fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(width: 16),
-                const Icon(Icons.payments_outlined,
-                    size: 16, color: AppColors.primary),
-                const SizedBox(width: 5),
-                Text(point.formattedCost,
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w600)),
               ],
             ),
             if (point.event.reason.isNotEmpty) ...[
@@ -2208,7 +2312,9 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        point.event.reason,
+                        // Strip " (Score: X.X)" appended by the recommendation engine
+                        point.event.reason
+                            .replaceAll(RegExp(r'\s*\(Score:\s*[\d.]+\)'), ''),
                         style: TextStyle(
                           fontSize: 13,
                           height: 1.4,
@@ -2287,28 +2393,26 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     final session = _tripService.session;
     final active = _tripService.hasActiveTrip;
 
+    final navClearance = MediaQuery.of(context).padding.bottom + 76;
+
     if (!active) {
-      // Start Trip button — sits above the bottom navigation bar
       return Positioned(
-        left: 16,
-        right: 16,
-        bottom: 120,
-        child: Center(
-          child: ElevatedButton.icon(
-            onPressed: _itineraryPoints.isEmpty ? null : _startTrip,
-            icon: const Icon(Icons.play_arrow_rounded, size: 24),
-            label: const Text('Start Trip'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE67E22),
-              foregroundColor: Colors.white,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-              textStyle:
-                  const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-              elevation: 6,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30)),
-            ),
+        left: 24,
+        right: 24,
+        bottom: navClearance + 12,
+        child: ElevatedButton.icon(
+          onPressed: _itineraryPoints.isEmpty ? null : _startTrip,
+          icon: const Icon(Icons.play_arrow_rounded, size: 22),
+          label: const Text('Start Trip'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFE67E22),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            textStyle:
+                const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            elevation: 6,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
           ),
         ),
       );
@@ -2323,7 +2427,7 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     return Positioned(
       left: 16,
       right: 16,
-      bottom: 120,
+      bottom: navClearance + 12,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(

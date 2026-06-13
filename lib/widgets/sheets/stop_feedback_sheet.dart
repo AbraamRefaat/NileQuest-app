@@ -70,9 +70,10 @@ class _StopFeedbackSheetState extends State<_StopFeedbackSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom +
+        MediaQuery.of(context).padding.bottom;
     return Padding(
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(bottom: bottomInset),
       child: Container(
         padding: const EdgeInsets.fromLTRB(
             AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.xl),

@@ -237,6 +237,39 @@ class PlacesService {
     }
   }
 
+  /// Search for a named POI near a coordinate using Google Text Search.
+  /// Used after queryRenderedFeatures returns a Mapbox feature name so we get
+  /// the exact place instead of a radius guess.
+  Future<TouristAttraction?> findPlaceByName(
+    String name,
+    double lat,
+    double lng,
+  ) async {
+    try {
+      final response = await _dio.get(
+        '$_baseUrl/place/textsearch/json',
+        queryParameters: {
+          'query': name,
+          'location': '$lat,$lng',
+          'radius': 500,
+          'key': _apiKey,
+        },
+      );
+      if (response.statusCode != 200 || response.data['status'] != 'OK') {
+        return null;
+      }
+      final results =
+          (response.data['results'] as List).cast<Map<String, dynamic>>();
+      if (results.isEmpty) return null;
+      final placeId = results.first['place_id'] as String?;
+      if (placeId == null) return null;
+      return findPlaceById(placeId, name);
+    } catch (e) {
+      print('Error finding place by name: $e');
+      return null;
+    }
+  }
+
   /// Resolve an autocomplete suggestion to a full attraction (with
   /// coordinates) via Place Details.
   Future<TouristAttraction?> findPlaceById(
