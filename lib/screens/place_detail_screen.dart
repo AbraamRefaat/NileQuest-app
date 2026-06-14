@@ -24,6 +24,26 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
   String? _photoUrl;
   bool _isLoadingPhoto = false;
 
+  /// The recommendation reason without the debug score suffix, e.g.
+  /// "Matches History (Score: 21.9)" -> "Matches History".
+  String get _reason => widget.event == null
+      ? ''
+      : widget.event!.reason
+          .replaceAll(RegExp(r'\s*\(score:[^)]*\)', caseSensitive: false), '')
+          .trim();
+
+  bool get _hasReason => _reason.isNotEmpty;
+
+  bool get _hasTime =>
+      widget.event != null && widget.event!.startTime.trim().isNotEmpty;
+
+  String get _aboutText {
+    final poi = widget.event!.poi;
+    if (poi.description.trim().isNotEmpty) return poi.description.trim();
+    if (poi.subcategory.trim().isNotEmpty) return poi.subcategory.trim();
+    return 'A wonderful ${poi.category.toLowerCase()} destination in Egypt.';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -339,101 +359,56 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                             ),
                           ),
                           child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
-                              // Time
-                              Column(
-                                children: [
-                                  const Icon(
-                                    Icons.schedule_rounded,
-                                    color: AppColors.primary,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'TIME',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.grey[400],
-                                    ),
-                                  ),
-                                  Text(
-                                    widget.event!.startTime,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.charcoal,
-                                    ),
-                                  ),
-                                ],
+                              if (_hasTime) ...[
+                                _StatItem(
+                                  icon: Icons.schedule_rounded,
+                                  label: 'TIME',
+                                  value: widget.event!.startTime,
+                                ),
+                                const _StatDivider(),
+                              ],
+                              _StatItem(
+                                icon: Icons.access_time_rounded,
+                                label: 'DURATION',
+                                value: '${poi.durationHours.toStringAsFixed(1)}h',
                               ),
-                              Container(
-                                width: 1,
-                                height: 32,
-                                color: AppColors.secondary.withValues(alpha: 0.2),
-                              ),
-                              // Duration
-                              Column(
-                                children: [
-                                  const Icon(
-                                    Icons.access_time_rounded,
-                                    color: AppColors.primary,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'DURATION',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.grey[400],
-                                    ),
-                                  ),
-                                  Text(
-                                    '${poi.durationHours.toStringAsFixed(1)}h',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.charcoal,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              Container(
-                                width: 1,
-                                height: 32,
-                                color: AppColors.secondary.withValues(alpha: 0.2),
-                              ),
-                              // Price
-                              Column(
-                                children: [
-                                  const Icon(
-                                    Icons.account_balance_wallet_rounded,
-                                    color: AppColors.primary,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'ENTRY',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.grey[400],
-                                    ),
-                                  ),
-                                  Text(
-                                    poi.priceDisplay,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.charcoal,
-                                    ),
-                                  ),
-                                ],
+                              const _StatDivider(),
+                              _StatItem(
+                                icon: Icons.account_balance_wallet_rounded,
+                                label: 'ENTRY',
+                                value: poi.priceDisplay,
                               ),
                             ],
                           ),
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        // Quick highlight chips
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _HighlightChip(
+                              icon: Icons.category_rounded,
+                              label: poi.category,
+                            ),
+                            _HighlightChip(
+                              icon: poi.indoorOutdoor
+                                      .toLowerCase()
+                                      .contains('out')
+                                  ? Icons.wb_sunny_rounded
+                                  : Icons.meeting_room_rounded,
+                              label: poi.indoorOutdoor,
+                            ),
+                            if (poi.openingHours.trim().isNotEmpty)
+                              _HighlightChip(
+                                icon: Icons.event_available_rounded,
+                                label: poi.openingHours,
+                              ),
+                          ],
                         ),
 
                         const SizedBox(height: 32),
@@ -445,9 +420,7 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          poi.subcategory.isNotEmpty 
-                              ? poi.subcategory 
-                              : 'A wonderful ${poi.category.toLowerCase()} destination in Egypt.',
+                          _aboutText,
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: AppColors.charcoal.withValues(alpha: 0.7),
                                 height: 1.6,
@@ -478,34 +451,51 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                           label: 'Setting',
                           value: poi.indoorOutdoor,
                         ),
-                        
-                        const SizedBox(height: 24),
 
-                        // Why this place
-                        Text(
-                          'Why this place?',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.05),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: AppColors.primary.withValues(alpha: 0.2),
+                        // Why this place (only when we have a recommendation
+                        // reason, e.g. for itinerary places)
+                        if (_hasReason) ...[
+                          const SizedBox(height: 32),
+                          Text(
+                            'Why this place?',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: AppColors.primary.withValues(alpha: 0.2),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.auto_awesome_rounded,
+                                  size: 18,
+                                  color: AppColors.primary,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    _reason,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      height: 1.5,
+                                      color:
+                                          AppColors.charcoal.withValues(alpha: 0.8),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          child: Text(
-                            widget.event!.reason,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: AppColors.charcoal.withValues(alpha: 0.8),
-                            ),
-                          ),
-                        ),
+                        ],
 
-                        const SizedBox(height: 100), // Space for CTA button
+                        const SizedBox(height: 32),
                       ],
                     ),
                   ),
@@ -513,43 +503,92 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
 
-          // Floating CTA Button
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border(
-                  top: BorderSide(
-                    color: AppColors.secondary.withValues(alpha: 0.2),
-                  ),
-                ),
-              ),
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: ElevatedButton(
-                    onPressed: () {},
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      elevation: 12,
-                      shadowColor: AppColors.primary.withValues(alpha: 0.3),
-                    ),
-                    child: const Text(
-                      'Add to Itinerary',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+class _StatItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _StatItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, color: AppColors.primary, size: 20),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[400],
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: AppColors.charcoal,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatDivider extends StatelessWidget {
+  const _StatDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 32,
+      color: AppColors.secondary.withValues(alpha: 0.2),
+    );
+  }
+}
+
+class _HighlightChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _HighlightChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.15),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppColors.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.charcoal,
             ),
           ),
         ],
