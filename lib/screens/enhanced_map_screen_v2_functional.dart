@@ -231,7 +231,12 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
       _filteredAttractions.add(place);
     }
 
+    // Picking a place dismisses the search UI (keyboard + autocomplete
+    // dropdown) so it doesn't sit on top of the place card.
+    _searchFocusNode.unfocus();
+
     setState(() {
+      _placeSuggestions = [];
       _selectedAttraction = place;
       _selectedPhotoUrl = place.photoReference != null
           ? _placesService.getPhotoUrl(place.photoReference!)
@@ -510,14 +515,16 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
           // 🗺️ Map
           _buildMapWithOverlay(),
 
-          // Top: search (explore) or day chips (trip)
-          if (!_isItineraryMode && !_isLoading)
+          // 🎯 Map Controls (painted before the search bar so the
+          // autocomplete dropdown can render on top of the rail)
+          _buildMapControls(),
+
+          // Top: the search bar is always pinned at the top. On a trip the
+          // day chips sit directly underneath it.
+          if (!_isLoading)
             _buildSearchBar(),
           if (_isItineraryMode)
             _buildAnimatedDaySelector(),
-
-          // 🎯 Map Controls
-          _buildMapControls(),
 
           // 🚶 Trip HUD: Start Trip button / live progress
           if (_isItineraryMode && _isMapReady)
@@ -588,8 +595,9 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     
     final days = widget.itinerary!.sortedDays;
 
+    // Sits directly beneath the always-on search bar (clear of the pill).
     return Positioned(
-      top: MediaQuery.of(context).padding.top + 8,
+      top: MediaQuery.of(context).padding.top + 80,
       left: 0,
       right: 0,
       child: SizedBox(
@@ -698,7 +706,10 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildSearchField(),
-          if (_placeSuggestions.isNotEmpty || _isResolvingPlace)
+          // Hide the dropdown once a place card is open so it doesn't pop
+          // back over the selected place.
+          if ((_placeSuggestions.isNotEmpty || _isResolvingPlace) &&
+              _selectedAttraction == null)
             _buildSuggestionsCard(),
         ],
       ),
@@ -893,9 +904,11 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     );
     // One tidy rail: view controls on top, discover/safety actions below.
     // Zoom is handled by pinch gestures — no +/- buttons needed.
+    // Fixed low enough to always clear the search pill (and the day chips
+    // beneath it on a trip), so the rail never overlaps the top UI.
     return Positioned(
       right: 16,
-      top: MediaQuery.of(context).padding.top + 45,
+      top: MediaQuery.of(context).padding.top + 160,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [

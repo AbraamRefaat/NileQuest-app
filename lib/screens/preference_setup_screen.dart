@@ -142,23 +142,7 @@ class _PreferenceSetupScreenState extends State<PreferenceSetupScreen> {
                               color: AppColors.primary,
                             ),
                       ),
-                      // Skip button only on the optional step 6
-                      if (_currentStep == 6)
-                        TextButton(
-                          onPressed: () {
-                            setState(() => _specificInterest = null);
-                            _nextStep();
-                          },
-                          child: const Text(
-                            'Skip',
-                            style: TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        )
-                      else
-                        const SizedBox(width: 40),
+                      const SizedBox(width: 40),
                     ],
                   ),
                   const SizedBox(height: 24),
