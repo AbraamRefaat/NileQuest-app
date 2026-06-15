@@ -49,7 +49,6 @@ class _WhoAmIScreenState extends State<WhoAmIScreen>
   // Result data
   String _artifactName = '';
   String _brief = '';
-  double _confidence = 0;
 
   // Error message
   String _errorMessage = '';
@@ -232,7 +231,6 @@ class _WhoAmIScreenState extends State<WhoAmIScreen>
           setState(() {
             _artifactName = data['character'] ?? 'Unknown';
             _brief = data['brief'] ?? 'No description available.';
-            _confidence = ((data['confidence'] ?? 0) * 100).toDouble();
             _state = _ScanState.result;
           });
           _resultSlideController.forward();
@@ -363,36 +361,6 @@ class _WhoAmIScreenState extends State<WhoAmIScreen>
         );
       },
     );
-  }
-
-  List<Widget> _buildGoldDots() {
-    final positions = [
-      [0.1, 0.15], [0.85, 0.12], [0.05, 0.45],
-      [0.92, 0.48], [0.2, 0.82], [0.75, 0.78],
-      [0.5, 0.08], [0.4, 0.92],
-    ];
-    return positions.asMap().entries.map((entry) {
-      final i = entry.key;
-      final pos = entry.value;
-      return AnimatedBuilder(
-        animation: _pulseController,
-        builder: (context, _) {
-          final pulse = 0.4 + (_pulseAnimation.value * 0.6) * ((i % 3) * 0.15 + 0.7);
-          return Positioned(
-            left: MediaQuery.of(context).size.width * pos[0],
-            top: MediaQuery.of(context).size.height * pos[1],
-            child: Container(
-              width: 4,
-              height: 4,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.secondary.withValues(alpha: pulse.clamp(0.0, 1.0)),
-              ),
-            ),
-          );
-        },
-      );
-    }).toList();
   }
 
   Widget _buildHeader() {

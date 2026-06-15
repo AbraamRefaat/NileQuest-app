@@ -115,8 +115,6 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
   // Vector (AI semantic) search
   final Map<String, VectorSearchResult> _markerToVectorResult = {};
   List<VectorSearchResult> _vectorResults = [];
-  String? _aiRecommendation;
-  bool _isVectorSearching = false;
 
   // Style + view
   MapStyleKind _styleKind = MapStyleKind.outdoors;
@@ -894,12 +892,6 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
       colors: [
         AppColors.primary.withValues(alpha: 0.18),
         AppColors.primary.withValues(alpha: 0.1),
-      ],
-    );
-    final sosGradient = LinearGradient(
-      colors: [
-        const Color(0xFFE74C3C).withValues(alpha: 0.15),
-        const Color(0xFFE74C3C).withValues(alpha: 0.08),
       ],
     );
     // One tidy rail: view controls on top, discover/safety actions below.
@@ -2540,17 +2532,12 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
 
   Future<void> _runVectorSearch(String query) async {
     if (query.trim().isEmpty) return;
-    setState(() {
-      _isVectorSearching = true;
-      _aiRecommendation = null;
-    });
     try {
       final result = await VectorSearchService.search(query, topK: 10);
       if (!mounted) return;
       final mappable = result.places.where((p) => p.hasCoordinates).toList();
       if (mappable.isEmpty) {
         // Don't leave the user staring at an unchanged map.
-        setState(() => _isVectorSearching = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('No matching places found — try different words'),
@@ -2561,14 +2548,11 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
       }
       setState(() {
         _vectorResults = mappable;
-        _aiRecommendation = result.aiRecommendation;
-        _isVectorSearching = false;
       });
       await _addVectorResultMarkers();
       _fitToVectorResults();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isVectorSearching = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('AI search unavailable right now — try again soon'),
@@ -2632,7 +2616,6 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
   void _clearVectorSearch() {
     setState(() {
       _vectorResults = [];
-      _aiRecommendation = null;
       _markerToVectorResult.clear();
     });
     if (_isItineraryMode) {
@@ -2739,59 +2722,6 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Banner showing the AI's text recommendation after a vector search
-  Widget _buildAiBanner() {
-    return Positioned(
-      top: MediaQuery.of(context).padding.top + 76,
-      left: 16,
-      right: 76,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF8E44AD), Color(0xFF5E2D79)],
-          ),
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF8E44AD).withValues(alpha: 0.35),
-              blurRadius: 16,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('🤖', style: TextStyle(fontSize: 20)),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                _aiRecommendation!,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  height: 1.4,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-            GestureDetector(
-              onTap: _clearVectorSearch,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 8),
-                child: Icon(Icons.close_rounded,
-                    color: Colors.white70, size: 20),
               ),
             ),
           ],

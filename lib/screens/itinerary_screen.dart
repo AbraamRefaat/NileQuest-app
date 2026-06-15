@@ -57,7 +57,6 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
   final TripStorageService _tripStorageService = TripStorageService();
   final Map<String, String?> _photoCache = {};
   final ScrollController _scrollController = ScrollController();
-  bool _isAutoSaving = false;
   bool _hasAutoSaved = false;
   bool _showBackToTop = false;
 
@@ -627,10 +626,6 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
 
     print('🚀 [ItineraryScreen] Starting automatic trip save for user: ${currentUser.uid}');
 
-    setState(() {
-      _isAutoSaving = true;
-    });
-
     try {
       // 1. Pre-fetch all photos first to ensure we have URLs for the database
       await _preFetchAllPhotos();
@@ -656,12 +651,6 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
       }
     } catch (e) {
       print('❌ Error in autosave: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isAutoSaving = false;
-        });
-      }
     }
   }
 
