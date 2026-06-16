@@ -2014,7 +2014,7 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'End your trip?',
+                  'End this day?',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
@@ -2023,7 +2023,7 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  "We'll wrap up your journey and show\nyou your trip recap.",
+                  "We'll wrap up today and show you your\nday's recap. Your trip stays open for\nyour other days.",
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
@@ -2106,8 +2106,10 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
       await showTripFeedbackSheet(context, finished);
     }
 
-    // Move the trip to history (clear from current trip tab)
-    widget.onTripFinished?.call();
+    // Note: this ends the current day's session only. The whole trip is left
+    // in the current-trip tab so the user can continue with their other days;
+    // finishing the entire trip is done explicitly via "Finish Trip" in the
+    // Trips screen.
   }
 
   Future<void> _openStopCamera(int stopIndex) async {
@@ -2186,10 +2188,10 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
           builder: (ctx) => AlertDialog(
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20)),
-            title: const Text('🎉 All stops completed!'),
+            title: const Text('🎉 Day completed!'),
             content: const Text(
               'You\'ve visited every place and captured all your photos! '
-              'Ready to end the trip and see your Wrapped?',
+              'Ready to end the day and see your Wrapped?',
             ),
             actions: [
               TextButton(
@@ -2483,7 +2485,7 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
                             ? (distance != null
                                 ? '${distance < 1000 ? "${distance.round()} m" : "${(distance / 1000).toStringAsFixed(1)} km"} away • ${session.visitedCount}/${session.stops.length} visited'
                                 : '${session.visitedCount}/${session.stops.length} visited')
-                            : 'End the trip to see your Wrapped!',
+                            : 'End the day to see your Wrapped!',
                         style: TextStyle(
                           fontSize: 12,
                           color: AppColors.charcoal.withValues(alpha: 0.6),
@@ -2504,7 +2506,7 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
                         color: Color(0xFFE67E22), size: 26),
                   ),
                 IconButton(
-                  tooltip: 'End trip',
+                  tooltip: 'End day',
                   onPressed: _endTrip,
                   icon: const Icon(Icons.stop_circle_rounded,
                       color: Color(0xFFE74C3C), size: 26),
