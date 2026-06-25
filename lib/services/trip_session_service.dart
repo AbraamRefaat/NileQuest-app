@@ -87,11 +87,12 @@ class TripSessionService extends ChangeNotifier {
     final stop = _stopAt(index);
     if (stop == null) return;
     stop.photoPaths.addAll(paths);
-    if (stop.status == StopStatus.upcoming) {
-      stop.status = StopStatus.arrived;
-      stop.arrivedAt = DateTime.now();
-    }
-    if (stop.photoPaths.length >= 3) {
+    // A photo is the traveller's proof they were here, so capturing even one
+    // completes the stop — its map pin turns green ✓ right away. (Extra
+    // photos are still welcome for the Wrapped.) Record the arrival time if a
+    // geofence/check-in hadn't already set it.
+    if (stop.photoPaths.isNotEmpty) {
+      stop.arrivedAt ??= DateTime.now();
       stop.status = StopStatus.completed;
     }
     await _persist();

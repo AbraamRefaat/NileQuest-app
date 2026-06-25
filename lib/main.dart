@@ -25,6 +25,7 @@ import 'models/user_preferences.dart';
 import 'models/itinerary.dart';
 import 'services/auth_service.dart';
 import 'services/current_trip_service.dart';
+import 'services/trip_progress_service.dart';
 import 'services/guest_mode_service.dart';
 import 'services/onboarding_service.dart';
 import 'services/server_warmer.dart';
@@ -216,6 +217,8 @@ class _AppNavigatorState extends State<AppNavigator> {
   /// Clear the current trip from the Trip tab so it only lives in history.
   void _clearCurrentTrip() {
     _currentTripService.clear();
+    // Reset ticked-off stops so a future trip starts with a clean checklist.
+    TripProgressService().clearAll();
     setState(() {
       _generatedItinerary = null;
       _currentTripBackendId = null;
@@ -447,6 +450,7 @@ class _AppNavigatorState extends State<AppNavigator> {
             // Clear guest mode and auth, then go to welcome screen
             await _guestModeService.clearGuestMode();
             await _currentTripService.clear();
+            await TripProgressService().clearAll();
             setState(() {
               _currentScreen = AppScreen.welcome;
               _activeTab = BottomNavTab.home;

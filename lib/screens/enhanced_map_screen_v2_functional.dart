@@ -17,6 +17,7 @@ import '../services/itinerary_map_service.dart';
 import '../services/nearby_discoveries_service.dart';
 import '../services/google_places_photo_service.dart';
 import '../services/trip_session_service.dart';
+import '../services/trip_progress_service.dart';
 import '../services/vector_search_service.dart';
 import '../services/notification_service.dart';
 import '../services/gamification_service.dart' as gam;
@@ -112,6 +113,10 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
   final TripSessionService _tripService = TripSessionService();
   final Map<String, int> _markerToStopIndex = {};
 
+  // Manual "done" checklist for the current trip's stops (works with or
+  // without a live session) — drives the green ✓ stop pins.
+  final TripProgressService _tripProgress = TripProgressService();
+
   // Vector (AI semantic) search
   final Map<String, VectorSearchResult> _markerToVectorResult = {};
   List<VectorSearchResult> _vectorResults = [];
@@ -144,6 +149,10 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
       _currentDay = widget.selectedDay ?? 1;
       _loadItineraryPoints();
     }
+
+    // Manual stop progress: restore ticked-off stops + refresh pins on change
+    _tripProgress.restore();
+    _tripProgress.addListener(_onProgressChanged);
 
     // Trip session: restore any in-progress trip + wire arrival callback
     _tripService.restore();
@@ -273,6 +282,7 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
 
   @override
   void dispose() {
+    _tripProgress.removeListener(_onProgressChanged);
     _tripService.removeListener(_onTripChanged);
     _tripService.onStopArrival = null;
     _searchDebounce?.cancel();
@@ -438,26 +448,29 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
 
     final dayColor = _itineraryService.getColorForDay(_currentDay ?? 1);
     final session = _tripService.session;
+    final day = _currentDay ?? 1;
 
     for (int i = 0; i < _itineraryPoints.length; i++) {
       final point = _itineraryPoints[i];
       final position = Point(coordinates: point.position);
 
-      // Color by trip progress: green = done, orange = arrived, day color = upcoming
+      // Color by progress: green ✓ = done, orange = arrived, day color =
+      // upcoming. A stop counts as done when the traveller ticked it off
+      // (manual checklist) OR the live session completed it — so progress
+      // shows with or without an active trip. The session only applies to
+      // the day it was started for.
       Color markerColor = dayColor;
       String label = '${i + 1}';
-      if (session != null && i < session.stops.length) {
-        switch (session.stops[i].status) {
-          case StopStatus.completed:
-            markerColor = const Color(0xFF27AE60);
-            label = '✓';
-            break;
-          case StopStatus.arrived:
-            markerColor = const Color(0xFFE67E22);
-            break;
-          case StopStatus.upcoming:
-            break;
-        }
+      final manuallyDone = _tripProgress.isDone(day, _poiKeyId(point));
+      final StopStatus? sessionStatus =
+          (session != null && session.day == day && i < session.stops.length)
+              ? session.stops[i].status
+              : null;
+      if (manuallyDone || sessionStatus == StopStatus.completed) {
+        markerColor = const Color(0xFF27AE60);
+        label = '✓';
+      } else if (sessionStatus == StopStatus.arrived) {
+        markerColor = const Color(0xFFE67E22);
       }
 
       // Numbered pin so each stop is unmistakable on the map
@@ -1570,9 +1583,11 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     _mapboxMap?.attribution.updateSettings(AttributionSettings(enabled: false));
     _mapboxMap?.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
 
-    // Create annotation managers
-    _pointAnnotationManager = await _mapboxMap?.annotations.createPointAnnotationManager();
+    // Create annotation managers. The polyline (route) manager is created
+    // first so it sits on a lower layer; the point (stop pin) manager is
+    // created after it and therefore renders ON TOP of the route line.
     _polylineAnnotationManager = await _mapboxMap?.annotations.createPolylineAnnotationManager();
+    _pointAnnotationManager = await _mapboxMap?.annotations.createPointAnnotationManager();
 
     // Wire up marker tap → open attraction card
     _pointAnnotationManager?.addOnPointAnnotationClickListener(
@@ -1802,9 +1817,10 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
       MapStyleKind.light => MapboxStyles.LIGHT,
     };
     await _mapboxMap?.loadStyleURI(uri);
-    // Re-create annotation managers since they get cleared on style change
-    _pointAnnotationManager = await _mapboxMap?.annotations.createPointAnnotationManager();
+    // Re-create annotation managers since they get cleared on style change.
+    // Polyline first (lower layer), then points so stop pins draw on top.
     _polylineAnnotationManager = await _mapboxMap?.annotations.createPolylineAnnotationManager();
+    _pointAnnotationManager = await _mapboxMap?.annotations.createPointAnnotationManager();
     _pointAnnotationManager?.addOnPointAnnotationClickListener(
       _AttractionTapHandler(_handleMarkerTap),
     );
@@ -1955,6 +1971,19 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     setState(() {});
     // Refresh marker colors to reflect visit progress
     if (_isItineraryMode) _addItineraryMarkers();
+  }
+
+  /// A stop was ticked off (or un-ticked) → recolor the day's pins.
+  void _onProgressChanged() {
+    if (!mounted) return;
+    if (_isItineraryMode) _addItineraryMarkers();
+  }
+
+  /// Stable id used to remember a stop's done state. POI ids are normally
+  /// present; fall back to the name so the key is never empty.
+  String _poiKeyId(ItineraryMapPoint point) {
+    final id = point.event.poi.id;
+    return id.isNotEmpty ? id : point.name;
   }
 
   Future<void> _startTrip() async {
@@ -2226,171 +2255,233 @@ class _EnhancedMapScreenV2FunctionalState extends State<EnhancedMapScreenV2Funct
     final stop = (session != null && stopIndex < session.stops.length)
         ? session.stops[stopIndex]
         : null;
+    final day = _currentDay ?? 1;
+    final poiId = _poiKeyId(point);
 
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (ctx) => Container(
-        padding: EdgeInsets.fromLTRB(
-            20, 12, 20, MediaQuery.of(ctx).padding.bottom + 20),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          // A stop is "done" once ticked off here or completed in a live trip.
+          final done = _tripProgress.isDone(day, poiId) ||
+              stop?.status == StopStatus.completed;
+          return Container(
+            padding: EdgeInsets.fromLTRB(
+                20, 12, 20, MediaQuery.of(ctx).padding.bottom + 20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
             ),
-            const SizedBox(height: 16),
-            Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: _itineraryService.getColorForDay(_currentDay ?? 1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    stop?.status == StopStatus.completed
-                        ? '✓ Stop ${stopIndex + 1}'
-                        : 'Stop ${stopIndex + 1}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    point.name,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.charcoal,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.access_time_rounded,
-                    size: 16, color: AppColors.primary),
-                const SizedBox(width: 5),
-                Text(point.timeRange,
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(width: 16),
-                const Icon(Icons.hourglass_bottom_rounded,
-                    size: 16, color: AppColors.primary),
-                const SizedBox(width: 5),
-                Text(point.formattedDuration,
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w600)),
-              ],
-            ),
-            if (point.event.reason.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.07),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 16),
+                Row(
                   children: [
-                    const Text('✨', style: TextStyle(fontSize: 14)),
-                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: done
+                            ? const Color(0xFF27AE60)
+                            : _itineraryService.getColorForDay(day),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        done
+                            ? '✓ Stop ${stopIndex + 1}'
+                            : 'Stop ${stopIndex + 1}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        // Strip " (Score: X.X)" appended by the recommendation engine
-                        point.event.reason
-                            .replaceAll(RegExp(r'\s*\(Score:\s*[\d.]+\)'), ''),
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.4,
-                          color: AppColors.charcoal.withValues(alpha: 0.85),
+                        point.name,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.charcoal,
                         ),
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      _openInGoogleMaps(
-                        point.position.lat.toDouble(),
-                        point.position.lng.toDouble(),
-                        mode: 'walking',
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Icon(Icons.access_time_rounded,
+                        size: 16, color: AppColors.primary),
+                    const SizedBox(width: 5),
+                    Text(point.timeRange,
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 16),
+                    const Icon(Icons.hourglass_bottom_rounded,
+                        size: 16, color: AppColors.primary),
+                    const SizedBox(width: 5),
+                    Text(point.formattedDuration,
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+                if (point.event.reason.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.07),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('✨', style: TextStyle(fontSize: 14)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            // Strip " (Score: X.X)" appended by the recommendation engine
+                            point.event.reason.replaceAll(
+                                RegExp(r'\s*\(Score:\s*[\d.]+\)'), ''),
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.4,
+                              color:
+                                  AppColors.charcoal.withValues(alpha: 0.85),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _openInGoogleMaps(
+                            point.position.lat.toDouble(),
+                            point.position.lng.toDouble(),
+                            mode: 'walking',
+                          );
+                        },
+                        icon: const Icon(Icons.navigation_rounded, size: 18),
+                        label: const Text('Navigate'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                    ),
+                    if (_tripService.hasActiveTrip && stop != null) ...[
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            if (stop.status == StopStatus.upcoming) {
+                              await _tripService.checkInAtStop(stopIndex);
+                            }
+                            _openStopCamera(stopIndex);
+                          },
+                          icon: Icon(
+                            stop.status == StopStatus.upcoming
+                                ? Icons.where_to_vote_rounded
+                                : Icons.photo_camera_rounded,
+                            size: 18,
+                          ),
+                          label: Text(stop.status == StopStatus.upcoming
+                              ? 'I\'m here!'
+                              : 'Photos (${stop.photoPaths.length}/3)'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE67E22),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 10),
+                // Tick the stop off (or undo) — turns its map pin green ✓ so
+                // the traveller can see at a glance which stops are done.
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await _tripProgress.setDone(day, poiId, !done);
+                      HapticFeedback.selectionClick();
+                      setSheetState(() {});
+                      if (!mounted) return;
+                      final nowDone = _tripProgress.isDone(day, poiId) ||
+                          stop?.status == StopStatus.completed;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(nowDone
+                              ? '✓ ${point.name} marked as done'
+                              : '${point.name} marked as not done'),
+                          behavior: SnackBarBehavior.floating,
+                          duration: const Duration(seconds: 2),
+                        ),
                       );
                     },
-                    icon: const Icon(Icons.navigation_rounded, size: 18),
-                    label: const Text('Navigate'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
+                    icon: Icon(
+                      done
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      size: 20,
+                      color: done
+                          ? const Color(0xFF27AE60)
+                          : AppColors.charcoal.withValues(alpha: 0.6),
+                    ),
+                    label:
+                        Text(done ? 'Done — tap to undo' : 'Mark as done'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: done
+                          ? const Color(0xFF27AE60)
+                          : AppColors.charcoal,
+                      side: BorderSide(
+                        color: done
+                            ? const Color(0xFF27AE60)
+                            : Colors.grey.withValues(alpha: 0.4),
+                        width: 1.5,
+                      ),
                       padding: const EdgeInsets.symmetric(vertical: 13),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14)),
                     ),
                   ),
                 ),
-                if (_tripService.hasActiveTrip && stop != null) ...[
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        Navigator.pop(ctx);
-                        if (stop.status == StopStatus.upcoming) {
-                          await _tripService.checkInAtStop(stopIndex);
-                        }
-                        _openStopCamera(stopIndex);
-                      },
-                      icon: Icon(
-                        stop.status == StopStatus.upcoming
-                            ? Icons.where_to_vote_rounded
-                            : Icons.photo_camera_rounded,
-                        size: 18,
-                      ),
-                      label: Text(stop.status == StopStatus.upcoming
-                          ? 'I\'m here!'
-                          : 'Photos (${stop.photoPaths.length}/3)'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE67E22),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
